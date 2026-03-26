@@ -1,0 +1,5 @@
+string current_waypoint
+string target_waypoint
+bool is_moving
+float32 travel_progress
+float32 battery_level

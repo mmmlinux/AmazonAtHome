@@ -1,0 +1,211 @@
+# Warehouse map — polar edge format
+#
+# bearing: compass degrees  (0 = North/up, 90 = East/right,
+#                            180 = South/down, 270 = West/left)
+# distance: meters
+#
+# Layout:
+#
+#  shelf_A2─shelf_A1─┐                      ┌─shelf_E1─shelf_E2
+#  shelf_B2─shelf_B1─┤                      ├─shelf_F1─shelf_F2
+#  shelf_C2─shelf_C1─┤                      ├─shelf_G1─shelf_G2
+#  shelf_D2─shelf_D1─┤                      ├─shelf_H1─shelf_H2
+#                 charge_1 ──────────── charge_2
+#                    │                      │
+#                 inter_L1             inter_R1
+#                    │                      │
+#                 inter_L2 ──────────── inter_R2
+#                    │                      │
+#                 inter_L3 ──────────── inter_R3
+#                    │                      │
+#                 inter_L4 ──────────── inter_R4
+#                    │                      │
+#                 inter_L5             inter_R5
+#                    │                      │
+#                 quick_1               quick_2
+#                    │                      │
+#                 dock_1  ────────────  dock_2
+
+display:
+  origin_x: 320   # SVG x of charge_1
+  origin_y: 60    # SVG y of charge_1
+  scale: 25       # pixels per meter
+
+origin: charge_1
+
+waypoints:
+  charge_1:
+    type: charging
+    description: "Charging station (west)"
+
+  charge_2:
+    type: charging
+    description: "Charging station (east)"
+
+  inter_L1:
+    type: intersection
+    description: "West corridor intersection 1"
+
+  inter_L2:
+    type: intersection
+    description: "West corridor intersection 2"
+
+  inter_L3:
+    type: intersection
+    description: "West corridor intersection 3"
+
+  inter_L4:
+    type: intersection
+    description: "West corridor intersection 4"
+
+  inter_L5:
+    type: intersection
+    description: "West corridor intersection 5"
+
+  inter_R1:
+    type: intersection
+    description: "East corridor intersection 1"
+
+  inter_R2:
+    type: intersection
+    description: "East corridor intersection 2"
+
+  inter_R3:
+    type: intersection
+    description: "East corridor intersection 3"
+
+  inter_R4:
+    type: intersection
+    description: "East corridor intersection 4"
+
+  inter_R5:
+    type: intersection
+    description: "East corridor intersection 5"
+
+  shelf_A1:
+    type: storage
+    description: "Row A, position 1"
+
+  shelf_A2:
+    type: storage
+    description: "Row A, position 2"
+
+  shelf_B1:
+    type: storage
+    description: "Row B, position 1"
+
+  shelf_B2:
+    type: storage
+    description: "Row B, position 2"
+
+  shelf_C1:
+    type: storage
+    description: "Row C, position 1"
+
+  shelf_C2:
+    type: storage
+    description: "Row C, position 2"
+
+  shelf_D1:
+    type: storage
+    description: "Row D, position 1"
+
+  shelf_D2:
+    type: storage
+    description: "Row D, position 2"
+
+  shelf_E1:
+    type: storage
+    description: "Row E, position 1"
+
+  shelf_E2:
+    type: storage
+    description: "Row E, position 2"
+
+  shelf_F1:
+    type: storage
+    description: "Row F, position 1"
+
+  shelf_F2:
+    type: storage
+    description: "Row F, position 2"
+
+  shelf_G1:
+    type: storage
+    description: "Row G, position 1"
+
+  shelf_G2:
+    type: storage
+    description: "Row G, position 2"
+
+  shelf_H1:
+    type: storage
+    description: "Row H, position 1"
+
+  shelf_H2:
+    type: storage
+    description: "Row H, position 2"
+
+  quick_1:
+    type: quick_access
+    description: "Quick access spot (west)"
+
+  quick_2:
+    type: quick_access
+    description: "Quick access spot (east)"
+
+  dock_1:
+    type: loading_unloading
+    description: "Loading/unloading dock (west)"
+
+  dock_2:
+    type: loading_unloading
+    description: "Loading/unloading dock (east)"
+
+# bearing is the direction FROM 'from' TO 'to'.
+# All edges are bidirectional for navigation.
+edges:
+  # ── West spine (south) ──────────────────────────────────────────────────────
+  - { from: charge_1,  to: inter_L1,  bearing: 180, distance: 3.0 }
+  - { from: inter_L1,  to: inter_L2,  bearing: 180, distance: 4.0 }
+  - { from: inter_L2,  to: inter_L3,  bearing: 180, distance: 4.0 }
+  - { from: inter_L3,  to: inter_L4,  bearing: 180, distance: 4.0 }
+  - { from: inter_L4,  to: inter_L5,  bearing: 180, distance: 4.0 }
+  - { from: inter_L5,  to: quick_1,   bearing: 180, distance: 2.0 }
+  - { from: quick_1,   to: dock_1,    bearing: 180, distance: 3.0 }
+
+  # ── East spine (south) ──────────────────────────────────────────────────────
+  - { from: charge_2,  to: inter_R1,  bearing: 180, distance: 3.0 }
+  - { from: inter_R1,  to: inter_R2,  bearing: 180, distance: 4.0 }
+  - { from: inter_R2,  to: inter_R3,  bearing: 180, distance: 4.0 }
+  - { from: inter_R3,  to: inter_R4,  bearing: 180, distance: 4.0 }
+  - { from: inter_R4,  to: inter_R5,  bearing: 180, distance: 4.0 }
+  - { from: inter_R5,  to: quick_2,   bearing: 180, distance: 2.0 }
+  - { from: quick_2,   to: dock_2,    bearing: 180, distance: 3.0 }
+
+  # ── East-west cross corridors ────────────────────────────────────────────────
+  - { from: charge_1,  to: charge_2,  bearing:  90, distance: 10.0 }
+  - { from: inter_L2,  to: inter_R2,  bearing:  90, distance: 10.0 }
+  - { from: inter_L3,  to: inter_R3,  bearing:  90, distance: 10.0 }
+  - { from: inter_L4,  to: inter_R4,  bearing:  90, distance: 10.0 }
+  - { from: dock_1,    to: dock_2,    bearing:  90, distance: 10.0 }
+
+  # ── West shelves (rows A–D, branching west from west spine) ──────────────────
+  - { from: inter_L1,  to: shelf_A1,  bearing: 270, distance: 3.0 }
+  - { from: shelf_A1,  to: shelf_A2,  bearing: 270, distance: 2.0 }
+  - { from: inter_L2,  to: shelf_B1,  bearing: 270, distance: 3.0 }
+  - { from: shelf_B1,  to: shelf_B2,  bearing: 270, distance: 2.0 }
+  - { from: inter_L3,  to: shelf_C1,  bearing: 270, distance: 3.0 }
+  - { from: shelf_C1,  to: shelf_C2,  bearing: 270, distance: 2.0 }
+  - { from: inter_L4,  to: shelf_D1,  bearing: 270, distance: 3.0 }
+  - { from: shelf_D1,  to: shelf_D2,  bearing: 270, distance: 2.0 }
+
+  # ── East shelves (rows E–H, branching east from east spine) ──────────────────
+  - { from: inter_R1,  to: shelf_E1,  bearing:  90, distance: 3.0 }
+  - { from: shelf_E1,  to: shelf_E2,  bearing:  90, distance: 2.0 }
+  - { from: inter_R2,  to: shelf_F1,  bearing:  90, distance: 3.0 }
+  - { from: shelf_F1,  to: shelf_F2,  bearing:  90, distance: 2.0 }
+  - { from: inter_R3,  to: shelf_G1,  bearing:  90, distance: 3.0 }
+  - { from: shelf_G1,  to: shelf_G2,  bearing:  90, distance: 2.0 }
+  - { from: inter_R4,  to: shelf_H1,  bearing:  90, distance: 3.0 }
+  - { from: shelf_H1,  to: shelf_H2,  bearing:  90, distance: 2.0 }

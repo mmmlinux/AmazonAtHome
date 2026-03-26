@@ -1,0 +1,5 @@
+string task_type   # pickup | delivery
+string slot
+---
+bool ok
+string message

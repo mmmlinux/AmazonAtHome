@@ -1,0 +1,14 @@
+# Goal: move robot to a single waypoint
+string target_waypoint
+float32 distance
+float32 heading_deg   # absolute heading for this leg  (0=East, 90=North, CCW positive)
+float32 turn_deg      # turn required from current heading (CCW positive, CW negative)
+---
+# Result
+bool success
+string final_waypoint
+string message
+---
+# Feedback
+string current_waypoint
+float32 distance_remaining

@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Warehouse Logistics</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: #0f1117;
+      color: #e2e8f0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Header ── */
+    header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 20px;
+      background: #181c27;
+      border-bottom: 1px solid #2d3748;
+      flex-shrink: 0;
+    }
+    header h1 { font-size: 1.1rem; font-weight: 600; letter-spacing: 0.02em; }
+    #conn-label { font-size: 0.75rem; color: #64748b; margin-left: auto; }
+
+    .dot {
+      width: 9px; height: 9px; border-radius: 50%;
+      background: #10b981; flex-shrink: 0;
+      transition: background 0.3s;
+    }
+    .dot.busy  { background: #f59e0b; }
+    .dot.error { background: #ef4444; }
+    .dot.off   { background: #4b5563; }
+
+    /* ── Main layout ── */
+    main {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 1fr 300px;
+      overflow: hidden;
+    }
+
+    /* ── Map panel ── */
+    #map-panel {
+      padding: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+    #map-svg {
+      width: 100%;
+      height: 100%;
+      max-height: calc(100vh - 58px - 40px);
+      background: #181c27;
+      border-radius: 10px;
+      border: 1px solid #2d3748;
+    }
+
+    /* robot pulse animation when moving */
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.6; }
+    }
+    #robot.moving { animation: pulse 0.8s ease-in-out infinite; }
+
+    /* ── Controls panel ── */
+    #controls {
+      background: #181c27;
+      border-left: 1px solid #2d3748;
+      padding: 20px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      overflow-y: auto;
+    }
+
+    .section-label {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #475569;
+      margin-bottom: 8px;
+    }
+
+    .card {
+      background: #1e2333;
+      border: 1px solid #2d3748;
+      border-radius: 8px;
+      padding: 14px;
+    }
+
+    #robot-location {
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: #f1f5f9;
+      margin-bottom: 4px;
+    }
+    #task-detail {
+      font-size: 0.8rem;
+      color: #94a3b8;
+      min-height: 2.4em;
+      line-height: 1.4;
+    }
+
+    /* progress bar */
+    #progress-bar-wrap {
+      margin-top: 10px;
+      height: 4px;
+      background: #2d3748;
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    #progress-bar {
+      height: 100%;
+      width: 0%;
+      background: #3b82f6;
+      border-radius: 2px;
+      transition: width 0.3s linear;
+    }
+
+    select {
+      width: 100%;
+      padding: 7px 10px;
+      border-radius: 6px;
+      border: 1px solid #374151;
+      background: #111827;
+      color: #e2e8f0;
+      font-size: 0.85rem;
+      margin-bottom: 10px;
+      cursor: pointer;
+    }
+    select:focus { outline: none; border-color: #3b82f6; }
+
+    .btn {
+      display: block;
+      width: 100%;
+      padding: 9px 12px;
+      border-radius: 6px;
+      border: none;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      margin-bottom: 8px;
+      transition: filter 0.15s, opacity 0.15s;
+      text-align: center;
+    }
+    .btn:last-child { margin-bottom: 0; }
+    .btn:hover:not(:disabled) { filter: brightness(1.15); }
+    .btn:disabled { opacity: 0.35; cursor: not-allowed; }
+    #btn-pickup   { background: #1d4ed8; color: #fff; }
+    #btn-delivery { background: #065f46; color: #fff; }
+
+    /* legend */
+    .legend-row {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 0.78rem; color: #94a3b8; margin-bottom: 5px;
+    }
+    .legend-row:last-child { margin-bottom: 0; }
+    .legend-dot {
+      width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="dot off" id="conn-dot"></div>
+  <h1>Warehouse Logistics</h1>
+  <span id="conn-label">Connecting…</span>
+</header>
+
+<main>
+  <!-- Map -->
+  <div id="map-panel">
+    <svg id="map-svg" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+          <feGaussianBlur in="SourceGraphic" stdDeviation="5" result="blur"/>
+          <feMerge>
+            <feMergeNode in="blur"/>
+            <feMergeNode in="SourceGraphic"/>
+          </feMerge>
+        </filter>
+        <filter id="soft-glow" x="-30%" y="-30%" width="160%" height="160%">
+          <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="blur"/>
+          <feMerge>
+            <feMergeNode in="blur"/>
+            <feMergeNode in="SourceGraphic"/>
+          </feMerge>
+        </filter>
+      </defs>
+
+      <g id="edges-layer"></g>
+      <g id="nodes-layer"></g>
+
+      <!-- Robot — positioned off-screen until map loads -->
+      <circle id="robot" r="13"
+        fill="#ef4444" stroke="#fca5a5" stroke-width="2.5"
+        style="filter:url(#glow); transition: transform 0.28s linear;"
+        transform="translate(-50,-50)"/>
+    </svg>
+  </div>
+
+  <!-- Controls -->
+  <div id="controls">
+
+    <div>
+      <div class="section-label">Robot Status</div>
+      <div class="card">
+        <div id="robot-location">Initialising…</div>
+        <div id="task-detail">—</div>
+        <div id="queue-info" style="font-size:0.75rem; color:#475569; margin-top:4px; min-height:1.2em;"></div>
+        <div id="progress-bar-wrap" style="display:none">
+          <div id="progress-bar"></div>
+        </div>
+        <div style="margin-top:12px;">
+          <div style="display:flex; justify-content:space-between; font-size:0.75rem; color:#64748b; margin-bottom:4px;">
+            <span>Battery</span><span id="battery-pct">—</span>
+          </div>
+          <div style="height:6px; background:#2d3748; border-radius:3px; overflow:hidden;">
+            <div id="battery-bar" style="height:100%; width:100%; border-radius:3px; transition: width 0.5s linear, background-color 0.5s;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="section-label">Task Control</div>
+      <div class="card">
+        <label style="font-size:0.78rem; color:#64748b; display:block; margin-bottom:6px">
+          Select storage slot
+        </label>
+        <select id="slot-select"><option value="">— loading slots —</option></select>
+        <button class="btn" id="btn-pickup"   disabled>Pick Up from Slot</button>
+        <button class="btn" id="btn-delivery" disabled>Put Box in Slot</button>
+      </div>
+    </div>
+
+    <div>
+      <div class="section-label">Legend</div>
+      <div class="card">
+        <div class="legend-row"><div class="legend-dot" style="background:#f59e0b"></div>Charging station</div>
+        <div class="legend-row"><div class="legend-dot" style="background:#34d399"></div>Loading dock</div>
+        <div class="legend-row"><div class="legend-dot" style="background:#f97316"></div>Unloading dock</div>
+        <div class="legend-row"><div class="legend-dot" style="background:#60a5fa"></div>Storage shelf</div>
+        <div class="legend-row"><div class="legend-dot" style="background:#a78bfa"></div>Quick access</div>
+        <div class="legend-row"><div class="legend-dot" style="background:#374151"></div>Intersection</div>
+        <div class="legend-row"><div class="legend-dot" style="background:#ef4444"></div>Robot</div>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<script>
+// ── Constants ────────────────────────────────────────────────────────────────
+
+const NODE_COLOR = {
+  charging:     '#f59e0b',
+  loading:      '#34d399',
+  unloading:    '#f97316',
+  storage:      '#60a5fa',
+  quick_access: '#a78bfa',
+  intersection: '#374151',
+};
+const NODE_RADIUS = { intersection: 7 };
+const DEFAULT_RADIUS = 15;
+
+// ── State ────────────────────────────────────────────────────────────────────
+
+let positions = {};     // waypoint_id -> {x, y}
+let robotState = null;
+
+// ── Map rendering ─────────────────────────────────────────────────────────────
+
+async function loadMap() {
+  const map = await fetch('/map').then(r => r.json());
+
+  // Build position lookup
+  for (const [id, info] of Object.entries(map.waypoints)) {
+    positions[id] = { x: info.x, y: info.y };
+  }
+
+  // Fit viewBox to the computed waypoint positions with padding
+  const pad = 40;
+  const xs = Object.values(positions).map(p => p.x);
+  const ys = Object.values(positions).map(p => p.y);
+  const minX = Math.min(...xs) - pad;
+  const minY = Math.min(...ys) - pad;
+  const maxX = Math.max(...xs) + pad;
+  const maxY = Math.max(...ys) + pad;
+
+  const svg = document.getElementById('map-svg');
+  svg.setAttribute('viewBox', `${minX} ${minY} ${maxX - minX} ${maxY - minY}`);
+  const edgesG = document.getElementById('edges-layer');
+  const nodesG = document.getElementById('nodes-layer');
+
+  // Edges (support both array [a,b,...] and object {from,to,...} formats)
+  for (const edge of map.edges) {
+    const a = edge.from ?? edge[0];
+    const b = edge.to   ?? edge[1];
+    const pa = positions[a], pb = positions[b];
+    if (!pa || !pb) continue;
+    const line = svgEl('line', {
+      x1: pa.x, y1: pa.y, x2: pb.x, y2: pb.y,
+      stroke: '#2d3748', 'stroke-width': 4, 'stroke-linecap': 'round',
+    });
+    edgesG.appendChild(line);
+  }
+
+  // Nodes
+  const storageTypes = new Set(['storage', 'quick_access']);
+  const slotSelect = document.getElementById('slot-select');
+  slotSelect.innerHTML = '';
+
+  for (const [id, info] of Object.entries(map.waypoints)) {
+    const pos = positions[id];
+    const color = NODE_COLOR[info.type] || '#6b7280';
+    const r = NODE_RADIUS[info.type] ?? DEFAULT_RADIUS;
+    const isIntersection = info.type === 'intersection';
+
+    const g = svgEl('g');
+
+    if (info.type === 'loading_unloading') {
+      // Half-half pie: left = loading green, right = unloading orange
+      const [cx, cy] = [pos.x, pos.y];
+      // Left semicircle (sweep-flag 0 = counter-clockwise = left side)
+      g.appendChild(svgEl('path', {
+        d: `M ${cx},${cy - r} A ${r},${r} 0 0,0 ${cx},${cy + r} Z`,
+        fill: '#34d399', stroke: 'none',
+      }));
+      // Right semicircle (sweep-flag 1 = clockwise = right side)
+      g.appendChild(svgEl('path', {
+        d: `M ${cx},${cy - r} A ${r},${r} 0 0,1 ${cx},${cy + r} Z`,
+        fill: '#f97316', stroke: 'none',
+      }));
+      // Shared outline + centre dividing line
+      g.appendChild(svgEl('circle', {
+        cx, cy, r, fill: 'none', stroke: '#0f1117', 'stroke-width': 2,
+      }));
+      g.appendChild(svgEl('line', {
+        x1: cx, y1: cy - r, x2: cx, y2: cy + r,
+        stroke: '#0f1117', 'stroke-width': 1,
+      }));
+    } else {
+      // Outer glow ring for named nodes
+      if (!isIntersection) {
+        g.appendChild(svgEl('circle', {
+          cx: pos.x, cy: pos.y, r: r + 5,
+          fill: color, opacity: 0.15,
+        }));
+      }
+      // Main circle
+      g.appendChild(svgEl('circle', {
+        cx: pos.x, cy: pos.y, r,
+        fill: color,
+        stroke: '#0f1117', 'stroke-width': 2,
+      }));
+    }
+
+    // Label
+    if (!isIntersection) {
+      const txt = svgEl('text', {
+        x: pos.x, y: pos.y + r + 14,
+        'text-anchor': 'middle',
+        fill: '#94a3b8',
+        'font-size': 11,
+        'font-family': 'monospace',
+      });
+      txt.textContent = id;
+      g.appendChild(txt);
+    }
+
+    nodesG.appendChild(g);
+
+    // Add to slot selector
+    if (storageTypes.has(info.type)) {
+      const opt = document.createElement('option');
+      opt.value = id;
+      opt.textContent = `${id}  (${info.type.replace('_', ' ')})`;
+      slotSelect.appendChild(opt);
+    }
+  }
+
+  // Enable buttons once map is loaded
+  document.getElementById('btn-pickup').disabled = false;
+  document.getElementById('btn-delivery').disabled = false;
+}
+
+function svgEl(tag, attrs = {}) {
+  const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+  return el;
+}
+
+// ── Robot rendering ──────────────────────────────────────────────────────────
+
+function placeRobot(state) {
+  if (!state) return;
+  const robot = document.getElementById('robot');
+  let x, y;
+
+  const from = positions[state.current_waypoint];
+  const to   = positions[state.target_waypoint];
+
+  if (state.is_moving && from && to) {
+    const t = Math.max(0, Math.min(1, state.travel_progress));
+    x = from.x + (to.x - from.x) * t;
+    y = from.y + (to.y - from.y) * t;
+  } else if (from) {
+    x = from.x;
+    y = from.y;
+  } else {
+    return;
+  }
+
+  robot.style.transform = `translate(${x}px, ${y}px)`;
+
+  if (state.is_moving) {
+    robot.classList.add('moving');
+  } else {
+    robot.classList.remove('moving');
+  }
+}
+
+// ── Status panel ─────────────────────────────────────────────────────────────
+
+function updatePanel(state) {
+  let locationText;
+  if (state.is_moving && state.target_waypoint) {
+    locationText = `${state.current_waypoint}  →  ${state.target_waypoint}`;
+  } else {
+    locationText = `At: ${state.current_waypoint}`;
+  }
+  document.getElementById('robot-location').textContent = locationText;
+  document.getElementById('task-detail').textContent = state.task_detail ?? '';
+
+  // Progress bar — show during movement
+  const barWrap = document.getElementById('progress-bar-wrap');
+  const bar     = document.getElementById('progress-bar');
+  if (state.is_moving) {
+    barWrap.style.display = 'block';
+    bar.style.width = `${Math.round(state.travel_progress * 100)}%`;
+  } else {
+    barWrap.style.display = 'none';
+  }
+
+  // Battery bar
+  const pct = state.battery_level ?? 100;
+  document.getElementById('battery-pct').textContent = `${pct.toFixed(0)}%`;
+  const battBar = document.getElementById('battery-bar');
+  battBar.style.width = `${pct}%`;
+  battBar.style.backgroundColor = pct > 60 ? '#10b981' : pct > 20 ? '#f59e0b' : '#ef4444';
+
+  // Connection dot reflects task state
+  const dot = document.getElementById('conn-dot');
+  dot.className = 'dot ' + (
+    state.task_status === 'error'   ? 'error' :
+    state.task_status === 'running' ? 'busy'  : ''
+  );
+
+  // Queue info
+  const queueEl = document.getElementById('queue-info');
+  const qs = state.queue_size ?? 0;
+  queueEl.textContent = qs > 0 ? `${qs} task${qs === 1 ? '' : 's'} queued` : '';
+
+  // Buttons only disabled when no slot is selected
+  const noSlot = !document.getElementById('slot-select').value;
+  document.getElementById('btn-pickup').disabled   = noSlot;
+  document.getElementById('btn-delivery').disabled = noSlot;
+}
+
+// ── WebSocket ────────────────────────────────────────────────────────────────
+
+let ws, reconnTimer;
+
+function connect() {
+  ws = new WebSocket(`ws://${location.host}/ws`);
+
+  ws.onopen = () => {
+    document.getElementById('conn-dot').className = 'dot';
+    document.getElementById('conn-label').textContent = 'Connected';
+    clearTimeout(reconnTimer);
+  };
+
+  ws.onclose = () => {
+    document.getElementById('conn-dot').className = 'dot off';
+    document.getElementById('conn-label').textContent = 'Disconnected — retrying…';
+    reconnTimer = setTimeout(connect, 2500);
+  };
+
+  ws.onmessage = ({ data }) => {
+    robotState = JSON.parse(data);
+    placeRobot(robotState);
+    updatePanel(robotState);
+  };
+}
+
+// ── Task buttons ─────────────────────────────────────────────────────────────
+
+async function sendTask(type) {
+  const slot = document.getElementById('slot-select').value;
+  if (!slot) { alert('Please select a slot first.'); return; }
+
+  await fetch(`/task/${type}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ slot }),
+  });
+}
+
+document.getElementById('btn-pickup').addEventListener('click',   () => sendTask('pickup'));
+document.getElementById('btn-delivery').addEventListener('click', () => sendTask('delivery'));
+
+// ── Boot ─────────────────────────────────────────────────────────────────────
+
+loadMap().then(connect);
+</script>
+</body>
+</html>

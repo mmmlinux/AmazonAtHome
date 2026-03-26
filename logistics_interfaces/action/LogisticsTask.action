@@ -1,0 +1,14 @@
+# Goal: destination waypoint for the robot
+string destination_waypoint
+---
+# Result
+bool success
+string[] path_taken
+string message
+---
+# Feedback
+string[] planned_path
+string current_waypoint
+int32 steps_completed
+int32 total_steps
+string detail
