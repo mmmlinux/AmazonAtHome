@@ -96,11 +96,10 @@ class RobotSim(Node):
         if self.current_waypoint not in self._charging_waypoints:
             return
         with self._battery_lock:
-            if self.battery_level >= 100.0:
-                return
-            gained = self._charge_rate * self.CHARGE_TIMER_PERIOD
-            self.battery_level = min(100.0, self.battery_level + gained)
-        self.get_logger().debug(f'Charging: {self.battery_level:.1f}%')
+            if self.battery_level < 100.0:
+                gained = self._charge_rate * self.CHARGE_TIMER_PERIOD
+                self.battery_level = min(100.0, self.battery_level + gained)
+                self.get_logger().debug(f'Charging: {self.battery_level:.1f}%')
         self._publish_status(is_moving=False, target='')
 
     # ── Status publisher ──────────────────────────────────────────────────────

@@ -11,7 +11,7 @@ from rclpy.node import Node
 import yaml
 
 from logistics_interfaces.action import LogisticsTask, MoveToWaypoint
-from logistics_interfaces.msg import RobotStatus
+from logistics_interfaces.msg import RobotStatus, WarehouseState
 
 
 def _parse_map(data: dict) -> tuple[dict, dict]:
@@ -93,12 +93,19 @@ class NavServer(Node):
         self._battery_level: float = 100.0
         self._battery_lock = threading.Lock()
 
+        # Slot occupancy — updated via warehouse_state topic
+        self._slot_occupied: dict[str, bool] = {}
+
         # Reentrant groups so the action client callbacks can fire while the
         # action server execute callback is blocking on threading.Event.
         cb_group = ReentrantCallbackGroup()
 
         self._status_sub = self.create_subscription(
             RobotStatus, 'robot_status', self._on_robot_status, 10,
+            callback_group=cb_group,
+        )
+        self.create_subscription(
+            WarehouseState, '/warehouse_state', self._on_warehouse_state, 10,
             callback_group=cb_group,
         )
 
@@ -145,6 +152,9 @@ class NavServer(Node):
     def _on_robot_status(self, msg: RobotStatus) -> None:
         with self._battery_lock:
             self._battery_level = float(msg.battery_level)
+
+    def _on_warehouse_state(self, msg: WarehouseState) -> None:
+        self._slot_occupied = {s.waypoint_id: s.occupied for s in msg.slots}
 
     # ------------------------------------------------------------------
     # Battery lockout

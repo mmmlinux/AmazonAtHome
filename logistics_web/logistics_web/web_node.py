@@ -1,18 +1,42 @@
 """
-Web bridge node for the warehouse logistics system.
+Web bridge node — pure UI / status relay, no robot logic.
 
-This node is purely a UI/status bridge — it contains no robot logic.
+Subscribes to every robot's robot_status and task_status topics and
+merges them into a single JSON object pushed over WebSocket at 10 Hz.
 
-Endpoints:
-  GET  /               → web UI (index.html)
-  GET  /map            → warehouse map JSON (waypoints + edges)
-  POST /task/pickup    {"slot": "<waypoint>"}  → forwarded to task_manager
-  POST /task/delivery  {"slot": "<waypoint>"}  → forwarded to task_manager
-  WS   /ws             → real-time RobotState JSON (polled at 10 Hz per client)
+WebSocket payload shape
+-----------------------
+{
+  "robots": {
+    "<robot_id>": {
+      "current_waypoint": str,
+      "target_waypoint":  str,
+      "is_moving":        bool,
+      "travel_progress":  float,
+      "battery_level":    float,
+      "task_status":      str,   // idle | running | error
+      "task_type":        str,
+      "task_detail":      str
+    },
+    ...
+  },
+  "queue_size": int
+}
 
-Data sources:
-  robot_status  topic  → physical robot position, battery, motion
-  task_status   topic  → task queue state from task_manager
+Endpoints
+---------
+  GET  /               web UI
+  GET  /map            warehouse map JSON
+  POST /task/pickup    {slot} → forwarded to task_manager via SubmitTask service
+  POST /task/delivery  {slot} → forwarded to task_manager via SubmitTask service
+  WS   /ws             live state stream
+
+Parameters
+----------
+  map_file   path to warehouse YAML
+  web_host   bind address (default 0.0.0.0)
+  web_port   HTTP port    (default 8080)
+  robots     comma-separated robot IDs matching the ROS namespaces in use
 """
 
 import asyncio
@@ -35,57 +59,54 @@ from pydantic import BaseModel
 
 from ament_index_python.packages import get_package_share_directory
 
-from logistics_interfaces.msg import RobotStatus, TaskStatus
-from logistics_interfaces.srv import SubmitTask
+from logistics_interfaces.msg import RobotStatus, TaskStatus, WarehouseState
+from logistics_interfaces.srv import SetSlotOccupancy, SubmitTask
 
 
 # ── Shared state ──────────────────────────────────────────────────────────────
-# Written by ROS callbacks, read by WebSocket poll loops.
 
 @dataclass
 class RobotState:
-    # Physical robot state (from robot_status topic)
-    current_waypoint: str = 'charge_1'
-    target_waypoint: str = ''
-    is_moving: bool = False
-    travel_progress: float = 0.0
-    battery_level: float = 100.0
-    # Task state (from task_status topic)
-    task_status: str = 'idle'      # idle | running | error
-    task_type: str = ''
-    task_detail: str = 'Idle at charging station'
-    queue_size: int = 0
+    current_waypoint:  str   = ''
+    target_waypoint:   str   = ''
+    is_moving:         bool  = False
+    travel_progress:   float = 0.0
+    battery_level:     float = 100.0
+    task_status:       str   = 'idle'
+    task_type:         str   = ''
+    task_detail:       str   = 'Initialising...'
+    movement_priority: int   = 0
 
 
-_state = RobotState()
-_state_lock = threading.Lock()
+class _State:
+    def __init__(self):
+        self.robots:     dict[str, RobotState] = {}
+        self.queue_size: int                   = 0
+        self.slots:      dict[str, bool]       = {}
+        self.lock = threading.Lock()
+
+    def snapshot(self) -> str:
+        with self.lock:
+            return json.dumps({
+                'robots':     {rid: asdict(s) for rid, s in self.robots.items()},
+                'queue_size': self.queue_size,
+                'slots':      dict(self.slots),
+            })
 
 
-def _update_state(**kwargs) -> None:
-    with _state_lock:
-        for k, v in kwargs.items():
-            setattr(_state, k, v)
+_state = _State()
 
 
-def _snapshot() -> str:
-    with _state_lock:
-        return json.dumps(asdict(_state))
-
-
-# ── Map position calculator ──────────────────────────────────────────────────
+# ── Map helper ────────────────────────────────────────────────────────────────
 
 def _parse_positions(data: dict) -> dict:
-    """
-    Compute SVG x/y for every waypoint via BFS from the origin,
-    using each edge's compass bearing and distance.
-    """
     display   = data.get('display', {})
     origin_x  = float(display.get('origin_x', 300))
     origin_y  = float(display.get('origin_y', 50))
     scale     = float(display.get('scale', 30))
     origin_id = data['origin']
 
-    adjacency: dict[str, list] = {}
+    adjacency: dict = {}
     for edge in data['edges']:
         a, b   = edge['from'], edge['to']
         bear   = float(edge['bearing'])
@@ -93,19 +114,19 @@ def _parse_positions(data: dict) -> dict:
         adjacency.setdefault(a, []).append((b,  bear,             dist))
         adjacency.setdefault(b, []).append((a, (bear + 180) % 360, dist))
 
-    svg_pos: dict[str, tuple[float, float]] = {origin_id: (origin_x, origin_y)}
+    svg_pos = {origin_id: (origin_x, origin_y)}
     queue = [origin_id]
     while queue:
-        current = queue.pop(0)
-        cx, cy = svg_pos[current]
-        for neighbour, bearing, distance in adjacency.get(current, []):
-            if neighbour not in svg_pos:
-                rad = math.radians(bearing)
-                svg_pos[neighbour] = (
-                    cx + distance * scale * math.sin(rad),
-                    cy - distance * scale * math.cos(rad),
+        cur = queue.pop(0)
+        cx, cy = svg_pos[cur]
+        for nb, bear, dist in adjacency.get(cur, []):
+            if nb not in svg_pos:
+                rad = math.radians(bear)
+                svg_pos[nb] = (
+                    cx + dist * scale * math.sin(rad),
+                    cy - dist * scale * math.cos(rad),
                 )
-                queue.append(neighbour)
+                queue.append(nb)
 
     waypoints = {}
     for wp_id, wp_data in data['waypoints'].items():
@@ -119,9 +140,9 @@ def _parse_positions(data: dict) -> dict:
 # ── FastAPI app ───────────────────────────────────────────────────────────────
 
 app = FastAPI()
-_map_data: dict = {}
-_static_dir: Path = Path()
-_web_node: 'WebNode | None' = None
+_map_data:   dict            = {}
+_static_dir: Path            = Path()
+_web_node:   'WebNode | None' = None
 
 
 @app.get('/')
@@ -152,13 +173,25 @@ def post_delivery(req: TaskRequest):
     return _web_node.submit_task('delivery', req.slot)
 
 
+class SlotToggleRequest(BaseModel):
+    waypoint_id: str
+    occupied: bool
+
+
+@app.post('/slot/set')
+def post_slot_set(req: SlotToggleRequest):
+    if _web_node is None:
+        return {'ok': False, 'error': 'Node not ready'}
+    return _web_node.set_slot_occupancy(req.waypoint_id, req.occupied)
+
+
 @app.websocket('/ws')
 async def ws_endpoint(ws: WebSocket):
     await ws.accept()
-    last_sent: str = ''
+    last_sent = ''
     try:
         while True:
-            snap = _snapshot()
+            snap = _state.snapshot()
             if snap != last_sent:
                 await ws.send_text(snap)
                 last_sent = snap
@@ -176,33 +209,54 @@ class WebNode(Node):
         self.declare_parameter('map_file',  '')
         self.declare_parameter('web_host',  '0.0.0.0')
         self.declare_parameter('web_port',  8080)
+        self.declare_parameter('robots',    'robot_1,robot_2')
 
-        map_file = self.get_parameter('map_file').get_parameter_value().string_value
-        host     = self.get_parameter('web_host').get_parameter_value().string_value
-        port     = self.get_parameter('web_port').get_parameter_value().integer_value
+        map_file   = self.get_parameter('map_file').get_parameter_value().string_value
+        host       = self.get_parameter('web_host').get_parameter_value().string_value
+        port       = self.get_parameter('web_port').get_parameter_value().integer_value
+        robots_str = self.get_parameter('robots').get_parameter_value().string_value
+
+        robot_ids = [r.strip() for r in robots_str.split(',') if r.strip()]
 
         global _map_data, _static_dir, _web_node
         _map_data   = self._load_map(map_file)
         _static_dir = Path(get_package_share_directory('logistics_web')) / 'static'
         _web_node   = self
 
+        # Pre-populate state for every robot so the WebSocket payload is
+        # consistent from the first frame
+        with _state.lock:
+            for rid in robot_ids:
+                _state.robots[rid] = RobotState()
+
         cb = ReentrantCallbackGroup()
 
-        self._robot_status_sub = self.create_subscription(
-            RobotStatus, 'robot_status', self._on_robot_status, 10,
-            callback_group=cb,
-        )
-        self._task_status_sub = self.create_subscription(
-            TaskStatus, 'task_status', self._on_task_status, 10,
-            callback_group=cb,
-        )
+        for rid in robot_ids:
+            self.create_subscription(
+                RobotStatus, f'{rid}/robot_status',
+                lambda msg, r=rid: self._on_robot_status(msg, r),
+                10, callback_group=cb,
+            )
+            self.create_subscription(
+                TaskStatus, f'{rid}/task_status',
+                lambda msg, r=rid: self._on_task_status(msg, r),
+                10, callback_group=cb,
+            )
+
         self._submit_client = self.create_client(
             SubmitTask, 'submit_task', callback_group=cb,
         )
+        self._occupancy_client = self.create_client(
+            SetSlotOccupancy, 'set_slot_occupancy', callback_group=cb,
+        )
+
+        self.create_subscription(
+            WarehouseState, 'warehouse_state', self._on_warehouse_state, 10,
+            callback_group=cb,
+        )
 
         threading.Thread(target=self._run_web, args=(host, port), daemon=True).start()
-
-        self.get_logger().info(f'Web UI → http://{host}:{port}')
+        self.get_logger().info(f'Web UI → http://{host}:{port}  robots={robot_ids}')
 
     # ── Map ───────────────────────────────────────────────────────────────────
 
@@ -214,45 +268,76 @@ class WebNode(Node):
         data['waypoints'] = _parse_positions(data)
         return data
 
-    # ── ROS topic callbacks ───────────────────────────────────────────────────
+    # ── Topic callbacks ───────────────────────────────────────────────────────
 
-    def _on_robot_status(self, msg: RobotStatus) -> None:
-        _update_state(
-            current_waypoint=msg.current_waypoint,
-            target_waypoint=msg.target_waypoint,
-            is_moving=msg.is_moving,
-            travel_progress=float(msg.travel_progress),
-            battery_level=float(msg.battery_level),
-        )
+    def _on_robot_status(self, msg: RobotStatus, robot_id: str) -> None:
+        with _state.lock:
+            s = _state.robots.get(robot_id)
+            if s is None:
+                return
+            s.current_waypoint = msg.current_waypoint
+            s.target_waypoint  = msg.target_waypoint
+            s.is_moving        = msg.is_moving
+            s.travel_progress  = float(msg.travel_progress)
+            s.battery_level    = float(msg.battery_level)
 
-    def _on_task_status(self, msg: TaskStatus) -> None:
-        _update_state(
-            task_status=msg.task_status,
-            task_type=msg.task_type,
-            task_detail=msg.task_detail,
-            queue_size=msg.queue_size,
-        )
+    def _on_task_status(self, msg: TaskStatus, robot_id: str) -> None:
+        with _state.lock:
+            s = _state.robots.get(robot_id)
+            if s is None:
+                return
+            s.task_status       = msg.task_status
+            s.task_type         = msg.task_type
+            s.task_detail       = msg.task_detail
+            s.movement_priority = msg.movement_priority
+            _state.queue_size   = msg.queue_size
 
-    # ── Service call: SubmitTask ──────────────────────────────────────────────
+    def _on_warehouse_state(self, msg: WarehouseState) -> None:
+        with _state.lock:
+            _state.slots = {s.waypoint_id: s.occupied for s in msg.slots}
+
+    # ── Service: SubmitTask ───────────────────────────────────────────────────
 
     def submit_task(self, task_type: str, slot: str) -> dict:
         if not self._submit_client.wait_for_service(timeout_sec=5.0):
             return {'ok': False, 'error': 'Task manager not available'}
 
-        done = threading.Event()
+        done          = threading.Event()
         result_holder: list = [None]
 
         def on_response(future):
             result_holder[0] = future.result()
             done.set()
 
-        req = SubmitTask.Request()
+        req           = SubmitTask.Request()
         req.task_type = task_type
         req.slot      = slot
         self._submit_client.call_async(req).add_done_callback(on_response)
 
         if not done.wait(timeout=10.0):
             return {'ok': False, 'error': 'Timeout contacting task manager'}
+
+        resp = result_holder[0]
+        return {'ok': resp.ok, 'message': resp.message}
+
+    def set_slot_occupancy(self, waypoint_id: str, occupied: bool) -> dict:
+        if not self._occupancy_client.wait_for_service(timeout_sec=5.0):
+            return {'ok': False, 'error': 'Warehouse state node not available'}
+
+        done          = threading.Event()
+        result_holder: list = [None]
+
+        def on_response(future):
+            result_holder[0] = future.result()
+            done.set()
+
+        req             = SetSlotOccupancy.Request()
+        req.waypoint_id = waypoint_id
+        req.occupied    = occupied
+        self._occupancy_client.call_async(req).add_done_callback(on_response)
+
+        if not done.wait(timeout=10.0):
+            return {'ok': False, 'error': 'Timeout'}
 
         resp = result_holder[0]
         return {'ok': resp.ok, 'message': resp.message}

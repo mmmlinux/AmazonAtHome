@@ -8,7 +8,10 @@ find_package(action_msgs REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/RobotStatus.msg"
   "msg/TaskStatus.msg"
+  "msg/SlotStatus.msg"
+  "msg/WarehouseState.msg"
   "srv/SubmitTask.srv"
+  "srv/SetSlotOccupancy.srv"
   "action/LogisticsTask.action"
   "action/MoveToWaypoint.action"
 )

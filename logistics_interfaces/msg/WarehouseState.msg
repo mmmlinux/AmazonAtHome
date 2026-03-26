@@ -1,0 +1,1 @@
+SlotStatus[] slots
