@@ -1,10 +1,13 @@
 # Goal: destination waypoint for the robot
 string destination_waypoint
+bool   carrying_box          # true when robot is loaded — triggers emergency-drop on low battery
+bool   skip_battery_check    # true for emergency-drop nav — suppresses all battery checks
 ---
 # Result
-bool success
+bool     success
+bool     diverted_to_charge  # true when task was aborted due to low battery
 string[] path_taken
-string message
+string   message
 ---
 # Feedback
 string[] planned_path

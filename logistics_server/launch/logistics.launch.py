@@ -19,7 +19,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             'travel_speed',
-            default_value='1.0',
+            default_value='2.0',
             description='Simulated robot travel speed in m/s',
         ),
         DeclareLaunchArgument(
@@ -27,48 +27,70 @@ def generate_launch_description():
             default_value='8080',
             description='Port for the web UI',
         ),
+        DeclareLaunchArgument(
+            'min_battery_1',
+            default_value='50.0',
+            description='Battery % at which robot_1 (empty) stops and charges',
+        ),
+        DeclareLaunchArgument(
+            'min_battery_2',
+            default_value='50.0',
+            description='Battery % at which robot_2 (empty) stops and charges',
+        ),
+        DeclareLaunchArgument(
+            'critical_battery_1',
+            default_value='25.0',
+            description='Battery % at which robot_1 (loaded) does an emergency drop',
+        ),
+        DeclareLaunchArgument(
+            'critical_battery_2',
+            default_value='25.0',
+            description='Battery % at which robot_2 (loaded) does an emergency drop',
+        ),
 
-        # ── Robot 1 (west side, starts at charge_1) ───────────────────────────
+        # ── Robot 1 (west side, home: charge_2) ──────────────────────────────
         Node(
             package='logistics_robot_sim',
             executable='robot_sim',
             name='robot_sim',
             namespace='robot_1',
-            parameters=[{
-                'travel_speed':             LaunchConfiguration('travel_speed'),
-                'start_waypoint':           'charge_1',
-                'initial_battery':          100.0,
-                'discharge_rate_per_meter': 0.5,
-                'charge_rate_per_second':   10.0,
-                'charging_waypoints':       'charge_1,charge_2',
-            }],
-            output='screen',
-        ),
-        Node(
-            package='logistics_server',
-            executable='nav_server',
-            name='nav_server',
-            namespace='robot_1',
-            parameters=[{
-                'map_file':    LaunchConfiguration('map_file'),
-                'robot_start': 'charge_1',
-            }],
-            output='screen',
-        ),
-
-        # ── Robot 2 (east side, starts at charge_2) ───────────────────────────
-        Node(
-            package='logistics_robot_sim',
-            executable='robot_sim',
-            name='robot_sim',
-            namespace='robot_2',
             parameters=[{
                 'travel_speed':             LaunchConfiguration('travel_speed'),
                 'start_waypoint':           'charge_2',
                 'initial_battery':          100.0,
                 'discharge_rate_per_meter': 0.5,
                 'charge_rate_per_second':   10.0,
-                'charging_waypoints':       'charge_1,charge_2',
+                'charging_waypoints':       'charge_1,charge_2,charge_3,charge_4',
+            }],
+            output='screen',
+        ),
+        Node(
+            package='logistics_server',
+            executable='nav_server',
+            name='nav_server',
+            namespace='robot_1',
+            parameters=[{
+                'map_file':         LaunchConfiguration('map_file'),
+                'robot_start':      'charge_2',
+                'min_battery':      LaunchConfiguration('min_battery_1'),
+                'critical_battery': LaunchConfiguration('critical_battery_1'),
+            }],
+            output='screen',
+        ),
+
+        # ── Robot 2 (east side, home: charge_3) ──────────────────────────────
+        Node(
+            package='logistics_robot_sim',
+            executable='robot_sim',
+            name='robot_sim',
+            namespace='robot_2',
+            parameters=[{
+                'travel_speed':             LaunchConfiguration('travel_speed'),
+                'start_waypoint':           'charge_3',
+                'initial_battery':          100.0,
+                'discharge_rate_per_meter': 0.5,
+                'charge_rate_per_second':   10.0,
+                'charging_waypoints':       'charge_1,charge_2,charge_3,charge_4',
             }],
             output='screen',
         ),
@@ -78,8 +100,10 @@ def generate_launch_description():
             name='nav_server',
             namespace='robot_2',
             parameters=[{
-                'map_file':    LaunchConfiguration('map_file'),
-                'robot_start': 'charge_2',
+                'map_file':         LaunchConfiguration('map_file'),
+                'robot_start':      'charge_3',
+                'min_battery':      LaunchConfiguration('min_battery_2'),
+                'critical_battery': LaunchConfiguration('critical_battery_2'),
             }],
             output='screen',
         ),
@@ -103,7 +127,9 @@ def generate_launch_description():
             parameters=[{
                 'robots':          'robot_1,robot_2',
                 'map_file':        LaunchConfiguration('map_file'),
-                'charge_waypoint': 'charge_1',
+                'charge_waypoint': 'charge_2',
+                'home_chargers':   'charge_2,charge_3',
+                'min_batteries':   '50.0,50.0',
                 'load_waypoint':   'dock_1',
                 'unload_waypoint': 'dock_1',
             }],

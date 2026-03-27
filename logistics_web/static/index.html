@@ -41,7 +41,7 @@
     main {
       flex: 1;
       display: grid;
-      grid-template-columns: 1fr 300px;
+      grid-template-columns: 1fr 300px 240px;
       overflow: hidden;
     }
 
@@ -195,6 +195,24 @@
     /* Clickable waypoint nodes */
     .slot-node { cursor: pointer; }
     .slot-node:hover circle { filter: brightness(1.3); }
+
+    /* ── Test panel ── */
+    #test-panel {
+      background: #181c27;
+      border-left: 1px solid #2d3748;
+      padding: 20px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      overflow-y: auto;
+    }
+    #test-log {
+      font-size: 0.72rem;
+      color: #64748b;
+      font-family: monospace;
+      line-height: 1.6;
+      min-height: 2em;
+    }
   </style>
 </head>
 <body>
@@ -264,6 +282,43 @@
     </div>
 
   </div>
+
+  <!-- Test panel -->
+  <div id="test-panel">
+    <div>
+      <div class="section-label">Testing</div>
+      <div class="card">
+        <button class="btn" id="btn-populate" style="background:#4b21a8; color:#fff; margin-bottom:10px">
+          Randomly Populate Shelves
+        </button>
+        <button class="btn" id="btn-clear-shelves" style="background:#1e2333; color:#94a3b8; border:1px solid #374151; margin-bottom:0">
+          Clear All Shelves
+        </button>
+      </div>
+    </div>
+    <div>
+      <div class="card">
+        <button class="btn" id="btn-random-pickup" style="background:#1d4ed8; color:#fff; margin-bottom:0">
+          Queue Random Pickup
+        </button>
+      </div>
+    </div>
+    <div>
+      <div class="section-label">Task Queue</div>
+      <div class="card">
+        <div id="queue-list" style="font-size:0.75rem; font-family:monospace; line-height:1.8; color:#94a3b8;">
+          <span style="color:#475569">empty</span>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="section-label">Log</div>
+      <div class="card">
+        <div id="test-log">—</div>
+      </div>
+    </div>
+  </div>
+
 </main>
 
 <script>
@@ -278,18 +333,19 @@ const NODE_COLOR = {
   quick_access:     '#a78bfa',
   intersection:     '#374151',
 };
-const NODE_RADIUS    = { intersection: 7 };
-const DEFAULT_RADIUS = 15;
+const NODE_RADIUS    = { intersection: 4 };
+const DEFAULT_RADIUS = 8;
 
 // Robot colours — assigned in order of first appearance
 const ROBOT_PALETTE = ['#ef4444', '#3b82f6', '#a855f7', '#f59e0b', '#10b981'];
 
 // ── Runtime state ─────────────────────────────────────────────────────────────
 
-let positions   = {};           // waypoint_id -> {x, y}
-let robotMeta   = {};           // robot_id    -> {color, svgEl, cardEl}
-let slotNodes   = {};           // waypoint_id -> {circleEl, dotEl} for trackable nodes
-let paletteIdx  = 0;
+let positions     = {};           // waypoint_id -> {x, y}
+let robotMeta     = {};           // robot_id    -> {color, svgEl, cardEl}
+let slotNodes     = {};           // waypoint_id -> {circleEl, dotEl} for trackable nodes
+let storageSlotIds = [];          // IDs of storage-type waypoints only
+let paletteIdx    = 0;
 
 // ── SVG helper ────────────────────────────────────────────────────────────────
 
@@ -308,7 +364,7 @@ async function loadMap() {
     positions[id] = { x: info.x, y: info.y };
 
   // Fit viewBox
-  const pad = 40;
+  const pad = 60;
   const xs  = Object.values(positions).map(p => p.x);
   const ys  = Object.values(positions).map(p => p.y);
   const minX = Math.min(...xs) - pad, maxX = Math.max(...xs) + pad;
@@ -325,7 +381,7 @@ async function loadMap() {
     if (!pa || !pb) continue;
     edgesG.appendChild(svgEl('line', {
       x1: pa.x, y1: pa.y, x2: pb.x, y2: pb.y,
-      stroke: '#2d3748', 'stroke-width': 4, 'stroke-linecap': 'round',
+      stroke: '#2d3748', 'stroke-width': 2, 'stroke-linecap': 'round',
     }));
   }
 
@@ -361,7 +417,7 @@ async function loadMap() {
     } else {
       const color = NODE_COLOR[info.type] || '#6b7280';
       if (!isIntersection) {
-        g.appendChild(svgEl('circle', { cx: pos.x, cy: pos.y, r: r + 5, fill: color, opacity: 0.15 }));
+        g.appendChild(svgEl('circle', { cx: pos.x, cy: pos.y, r: r + 3, fill: color, opacity: 0.15 }));
       }
       mainCircle = svgEl('circle', {
         cx: pos.x, cy: pos.y, r,
@@ -388,14 +444,18 @@ async function loadMap() {
 
     if (!isIntersection) {
       const txt = svgEl('text', {
-        x: pos.x, y: pos.y + r + 14,
+        x: pos.x, y: pos.y + r + 8,
         'text-anchor': 'middle', fill: '#94a3b8',
-        'font-size': 11, 'font-family': 'monospace',
+        'font-size': 8, 'font-family': 'monospace',
       });
       txt.textContent = id;
       g.appendChild(txt);
     }
     nodesG.appendChild(g);
+
+    if (info.type === 'storage') {
+      storageSlotIds.push(id);
+    }
 
     if (storageTypes.has(info.type)) {
       const opt   = document.createElement('option');
@@ -420,8 +480,8 @@ function ensureRobot(robotId) {
   // SVG circle
   const robotsLayer = document.getElementById('robots-layer');
   const el = svgEl('circle', {
-    r: 13,
-    fill: color, stroke: '#fff', 'stroke-width': 2,
+    r: 8,
+    fill: color, stroke: '#fff', 'stroke-width': 1.5,
     style: 'filter:url(#glow); transition: transform 0.28s linear;',
     transform: 'translate(-50,-50)',
   });
@@ -524,6 +584,21 @@ function updateUI(data) {
   document.getElementById('queue-badge').textContent =
     qs > 0 ? `${qs} task${qs === 1 ? '' : 's'} queued` : '';
 
+  // Task queue list in test panel
+  const items = data.queue_items ?? [];
+  const qEl   = document.getElementById('queue-list');
+  if (items.length === 0) {
+    qEl.innerHTML = '<span style="color:#475569">empty</span>';
+  } else {
+    qEl.innerHTML = items.map((item, i) => {
+      const colon = item.indexOf(':');
+      const type  = item.slice(0, colon);
+      const slot  = item.slice(colon + 1);
+      const color = type === 'pickup' ? '#60a5fa' : '#34d399';
+      return `<div>${i + 1}. <span style="color:${color}">${type}</span> ${slot}</div>`;
+    }).join('');
+  }
+
   // Per-robot
   for (const [robotId, s] of Object.entries(data.robots ?? {}))
     renderRobot(robotId, s);
@@ -583,6 +658,44 @@ async function sendTask(type) {
 
 document.getElementById('btn-pickup').addEventListener('click',   () => sendTask('pickup'));
 document.getElementById('btn-delivery').addEventListener('click', () => sendTask('delivery'));
+
+// ── Test panel ────────────────────────────────────────────────────────────────
+
+function testLog(msg) {
+  document.getElementById('test-log').textContent = msg;
+}
+
+document.getElementById('btn-populate').addEventListener('click', async () => {
+  if (!storageSlotIds.length) { testLog('No shelves loaded yet.'); return; }
+  let filled = 0;
+  for (const id of storageSlotIds) {
+    const occupied = Math.random() < 0.65;
+    if (occupied) filled++;
+    await setSlotOccupancy(id, occupied);
+  }
+  testLog(`Populated ${filled} / ${storageSlotIds.length} shelves.`);
+});
+
+document.getElementById('btn-clear-shelves').addEventListener('click', async () => {
+  if (!storageSlotIds.length) { testLog('No shelves loaded yet.'); return; }
+  for (const id of storageSlotIds)
+    await setSlotOccupancy(id, false);
+  testLog(`Cleared ${storageSlotIds.length} shelves.`);
+});
+
+document.getElementById('btn-random-pickup').addEventListener('click', async () => {
+  const occupied = storageSlotIds.filter(
+    id => slotNodes[id] && parseFloat(slotNodes[id].occupancyDot.getAttribute('opacity')) > 0.5
+  );
+  if (!occupied.length) { testLog('No occupied shelves to pick from.'); return; }
+  const slot = occupied[Math.floor(Math.random() * occupied.length)];
+  await fetch('/task/pickup', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ slot }),
+  });
+  testLog(`Queued pickup: ${slot}`);
+});
 
 // ── Boot ─────────────────────────────────────────────────────────────────────
 

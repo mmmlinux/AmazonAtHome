@@ -77,9 +77,13 @@ class NavServer(Node):
 
         self.declare_parameter('map_file', '')
         self.declare_parameter('robot_start', 'charge_1')
+        self.declare_parameter('min_battery',      50.0)   # empty-robot charge threshold
+        self.declare_parameter('critical_battery', 25.0)   # loaded-robot emergency-drop threshold
 
         map_file = self.get_parameter('map_file').get_parameter_value().string_value
         self.robot_position = self.get_parameter('robot_start').get_parameter_value().string_value
+        self._min_battery:      float = self.get_parameter('min_battery').get_parameter_value().double_value
+        self._critical_battery: float = self.get_parameter('critical_battery').get_parameter_value().double_value
 
         self.graph: dict[str, dict[str, float]] = {}
         self.waypoint_info: dict = {}
@@ -178,42 +182,77 @@ class NavServer(Node):
                 best_wp = wp
         return best_wp
 
-    def _ensure_battery_ok(self, goal_handle) -> None:
+    def _check_low_battery_carrying(self, goal_handle, result, path_taken: list) -> bool:
         """
-        If battery is below 20%, navigate to the nearest charger and hold
-        until battery is BOTH above 20% AND has gained at least 5% since
-        charging started (whichever condition is satisfied second).
-        Publishes detail feedback throughout.
+        When carrying a box, check if battery is below 20%. If so, abort
+        immediately so the task manager can handle the emergency drop.
+        Does NOT navigate to a charger — that is the task manager's job.
+        Returns True if the goal was aborted (caller must return immediately).
+        """
+        with self._battery_lock:
+            level = self._battery_level
+        if level >= self._critical_battery:
+            return False
+
+        self.get_logger().warning(
+            f'Critical battery ({level:.1f}%) while carrying — aborting for emergency drop'
+        )
+        fb = LogisticsTask.Feedback()
+        fb.current_waypoint = self.robot_position
+        fb.detail = f'Critical battery ({level:.0f}%) — emergency drop needed'
+        goal_handle.publish_feedback(fb)
+
+        result.success = False
+        result.diverted_to_charge = True
+        result.path_taken = path_taken
+        result.message = 'low_battery_carrying'
+        goal_handle.abort()
+        return True
+
+    def _handle_low_battery(self, goal_handle, result, path_taken: list) -> bool:
+        """
+        Check whether battery is below 20%. If so, navigate to the nearest charger
+        and hold until battery is BOTH above 20% AND has gained at least 5% since
+        charging started, then abort the current goal so the task can be re-queued.
+
+        Returns True if the goal was aborted (caller must return immediately).
+        Returns False if battery is fine and the task should continue.
+
+        Only call this when the robot is NOT carrying a box.
         """
         with self._battery_lock:
             level = self._battery_level
 
-        if level >= 20.0:
-            return
+        if level >= self._min_battery:
+            return False
 
-        self.get_logger().warning(f'Low battery ({level:.1f}%) — charging before task')
+        self.get_logger().warning(
+            f'Low battery ({level:.1f}%) — diverting to charger'
+        )
 
         charger = self._find_nearest_charger()
         if charger is None:
             self.get_logger().error('No charging waypoint found in map')
-            return
+            result.success = False
+            result.diverted_to_charge = False
+            result.path_taken = path_taken
+            result.message = 'low_battery_no_charger'
+            goal_handle.abort()
+            return True
 
         # Navigate to charger if not already there
         current_type = self.waypoint_info.get(self.robot_position, {}).get('type', '')
         if current_type != 'charging':
             fb = LogisticsTask.Feedback()
             fb.current_waypoint = self.robot_position
-            fb.steps_completed = 0
-            fb.total_steps = 0
             fb.detail = f'Low battery ({level:.0f}%) — going to charger...'
             goal_handle.publish_feedback(fb)
             self._send_move_to(charger)
 
-        # Record level at start of charging wait for the +5% requirement
+        resume_at = 80.0
+
         with self._battery_lock:
             charge_start = self._battery_level
-        resume_at = max(20.0, charge_start + 5.0)
-
         self.get_logger().info(
             f'Holding at charger until battery ≥ {resume_at:.0f}% '
             f'(currently {charge_start:.1f}%)'
@@ -226,13 +265,19 @@ class NavServer(Node):
                 break
             fb = LogisticsTask.Feedback()
             fb.current_waypoint = self.robot_position
-            fb.steps_completed = 0
-            fb.total_steps = 0
             fb.detail = f'Charging: {level:.0f}% / {resume_at:.0f}%'
             goal_handle.publish_feedback(fb)
             time.sleep(0.5)
 
-        self.get_logger().info(f'Battery recovered to {level:.1f}%, resuming task')
+        self.get_logger().info(
+            f'Battery recovered to {level:.1f}% — aborting task for re-queue'
+        )
+        result.success = False
+        result.diverted_to_charge = True
+        result.path_taken = path_taken
+        result.message = 'diverted_to_charge'
+        goal_handle.abort()
+        return True
 
     def _send_move_to(self, destination: str) -> bool:
         """Navigate to destination using full Dijkstra path, updating robot_position."""
@@ -322,13 +367,27 @@ class NavServer(Node):
     # ------------------------------------------------------------------
 
     def _execute_task(self, goal_handle):
-        destination = goal_handle.request.destination_waypoint
-        self.get_logger().info(f'New task: send robot to [{destination}]')
+        destination         = goal_handle.request.destination_waypoint
+        carrying_box        = goal_handle.request.carrying_box
+        skip_battery_check  = goal_handle.request.skip_battery_check
+        self.get_logger().info(
+            f'New task: send robot to [{destination}]  '
+            f'carrying_box={carrying_box}  skip_battery_check={skip_battery_check}'
+        )
 
         result = LogisticsTask.Result()
+        result.diverted_to_charge = False
 
-        # Battery check — navigate to charger and wait if below threshold
-        self._ensure_battery_ok(goal_handle)
+        # Pre-nav battery check (skipped for emergency-drop navigation).
+        # Not carrying: divert to nearest charger, charge to 80%, then abort for re-queue.
+        # Carrying: abort immediately — task manager handles the emergency drop.
+        if not skip_battery_check:
+            if not carrying_box:
+                if self._handle_low_battery(goal_handle, result, [self.robot_position]):
+                    return result
+            else:
+                if self._check_low_battery_carrying(goal_handle, result, [self.robot_position]):
+                    return result
 
         if destination not in self.graph:
             result.success = False
@@ -401,6 +460,15 @@ class NavServer(Node):
             self.robot_position = next_wp
             self.robot_heading_deg = heading
             path_taken.append(next_wp)
+
+            # Mid-nav battery check after each hop (skipped for emergency-drop nav)
+            if not skip_battery_check:
+                if not carrying_box:
+                    if self._handle_low_battery(goal_handle, result, path_taken):
+                        return result
+                else:
+                    if self._check_low_battery_carrying(goal_handle, result, path_taken):
+                        return result
 
             feedback.current_waypoint = self.robot_position
             feedback.steps_completed = i

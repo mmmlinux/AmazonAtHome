@@ -4,156 +4,738 @@
 #                            180 = South/down, 270 = West/left)
 # distance: meters
 #
-# Layout:
+# Layout (top = north):
 #
-#  shelf_A2─shelf_A1─┐                      ┌─shelf_E1─shelf_E2
-#  shelf_B2─shelf_B1─┤                      ├─shelf_F1─shelf_F2
-#  shelf_C2─shelf_C1─┤                      ├─shelf_G1─shelf_G2
-#  shelf_D2─shelf_D1─┤                      ├─shelf_H1─shelf_H2
-#                 charge_1 ──────────── charge_2
-#                    │                      │
-#                 inter_L1             inter_R1
-#                    │                      │
-#                 inter_L2 ──────────── inter_R2
-#                    │                      │
-#                 inter_L3 ──────────── inter_R3
-#                    │                      │
-#                 inter_L4 ──────────── inter_R4
-#                    │                      │
-#                 inter_L5             inter_R5
-#                    │                      │
-#                 quick_1               quick_2
-#                    │                      │
-#                 dock_1  ────────────  dock_2
+#  charge_1─charge_2 ════════════════════════ charge_3─charge_4
+#                │      double-wide corridor        │
+#  ·─·─·─·─·  aisle positions A1-A5 ─ spine_W1 ─ spine_E1 ─ aisle positions F1-F5 ─·─·─·─·─·
+#      each position has 2 storage spots branching N and S (e.g. shelf_A11, shelf_A12)
+#  ·─·─·─·─·  B1-B5 ─ spine_W2 ─ spine_E2 ─ G1-G5 ─·─·─·─·─·
+#  ·─·─·─·─·  C1-C5 ─ spine_W3 ─ spine_E3 ─ H1-H5 ─·─·─·─·─·
+#  ·─·─·─·─·  D1-D5 ─ spine_W4 ─ spine_E4 ─ I1-I5 ─·─·─·─·─·
+#  ·─·─·─·─·  E1-E5 ─ spine_W5 ─ spine_E5 ─ J1-J5 ─·─·─·─·─·
+#              qa_W(+qa_W1/qa_W2) ─spine_Wqa─spine_Eqa─ qa_E(+qa_E1/qa_E2)
+#                              dock_1 ──── dock_2
+#
+# Storage naming: shelf_XYZ
+#   X = aisle letter (A-J)
+#   Y = position along aisle (1-5, 1 is nearest spine)
+#   Z = side (1 = north, 2 = south)
+#   e.g. shelf_A11 = aisle A, position 1, north side
 
 display:
-  origin_x: 320   # SVG x of charge_1
-  origin_y: 60    # SVG y of charge_1
-  scale: 25       # pixels per meter
+  origin_x: 380   # SVG x of charge_2 (inner-west charger)
+  origin_y: 50    # SVG y of charge_2
+  scale: 20       # pixels per meter
 
-origin: charge_1
+origin: charge_2
 
 waypoints:
+
+  # ── Charging stations ────────────────────────────────────────────────────────
   charge_1:
     type: charging
-    description: "Charging station (west)"
+    description: "Charging station (far west)"
 
   charge_2:
     type: charging
-    description: "Charging station (east)"
+    description: "Charging station (inner west)"
 
-  inter_L1:
+  charge_3:
+    type: charging
+    description: "Charging station (inner east)"
+
+  charge_4:
+    type: charging
+    description: "Charging station (far east)"
+
+  # ── West spine corridor junctions ────────────────────────────────────────────
+  spine_W1:
     type: intersection
-    description: "West corridor intersection 1"
+    description: "West corridor junction — aisle A"
 
-  inter_L2:
+  spine_W2:
     type: intersection
-    description: "West corridor intersection 2"
+    description: "West corridor junction — aisle B"
 
-  inter_L3:
+  spine_W3:
     type: intersection
-    description: "West corridor intersection 3"
+    description: "West corridor junction — aisle C"
 
-  inter_L4:
+  spine_W4:
     type: intersection
-    description: "West corridor intersection 4"
+    description: "West corridor junction — aisle D"
 
-  inter_L5:
+  spine_W5:
     type: intersection
-    description: "West corridor intersection 5"
+    description: "West corridor junction — aisle E"
 
-  inter_R1:
+  spine_Wqa:
     type: intersection
-    description: "East corridor intersection 1"
+    description: "West corridor junction — quick access"
 
-  inter_R2:
+  # ── East spine corridor junctions ────────────────────────────────────────────
+  spine_E1:
     type: intersection
-    description: "East corridor intersection 2"
+    description: "East corridor junction — aisle F"
 
-  inter_R3:
+  spine_E2:
     type: intersection
-    description: "East corridor intersection 3"
+    description: "East corridor junction — aisle G"
 
-  inter_R4:
+  spine_E3:
     type: intersection
-    description: "East corridor intersection 4"
+    description: "East corridor junction — aisle H"
 
-  inter_R5:
+  spine_E4:
     type: intersection
-    description: "East corridor intersection 5"
+    description: "East corridor junction — aisle I"
 
-  shelf_A1:
+  spine_E5:
+    type: intersection
+    description: "East corridor junction — aisle J"
+
+  spine_Eqa:
+    type: intersection
+    description: "East corridor junction — quick access"
+
+  # ── Aisle A positions (runs west from spine_W1) ───────────────────────────────
+  aisle_A1:
+    type: intersection
+    description: "Aisle A, position 1"
+
+  aisle_A2:
+    type: intersection
+    description: "Aisle A, position 2"
+
+  aisle_A3:
+    type: intersection
+    description: "Aisle A, position 3"
+
+  aisle_A4:
+    type: intersection
+    description: "Aisle A, position 4"
+
+  aisle_A5:
+    type: intersection
+    description: "Aisle A, position 5"
+
+  # Aisle A storage spots (north=1, south=2)
+  shelf_A11:
     type: storage
-    description: "Row A, position 1"
+    description: "Aisle A, position 1, north"
 
-  shelf_A2:
+  shelf_A12:
     type: storage
-    description: "Row A, position 2"
+    description: "Aisle A, position 1, south"
 
-  shelf_B1:
+  shelf_A21:
     type: storage
-    description: "Row B, position 1"
+    description: "Aisle A, position 2, north"
 
-  shelf_B2:
+  shelf_A22:
     type: storage
-    description: "Row B, position 2"
+    description: "Aisle A, position 2, south"
 
-  shelf_C1:
+  shelf_A31:
     type: storage
-    description: "Row C, position 1"
+    description: "Aisle A, position 3, north"
 
-  shelf_C2:
+  shelf_A32:
     type: storage
-    description: "Row C, position 2"
+    description: "Aisle A, position 3, south"
 
-  shelf_D1:
+  shelf_A41:
     type: storage
-    description: "Row D, position 1"
+    description: "Aisle A, position 4, north"
 
-  shelf_D2:
+  shelf_A42:
     type: storage
-    description: "Row D, position 2"
+    description: "Aisle A, position 4, south"
 
-  shelf_E1:
+  shelf_A51:
     type: storage
-    description: "Row E, position 1"
+    description: "Aisle A, position 5, north"
 
-  shelf_E2:
+  shelf_A52:
     type: storage
-    description: "Row E, position 2"
+    description: "Aisle A, position 5, south"
 
-  shelf_F1:
+  # ── Aisle B positions (runs west from spine_W2) ───────────────────────────────
+  aisle_B1:
+    type: intersection
+    description: "Aisle B, position 1"
+
+  aisle_B2:
+    type: intersection
+    description: "Aisle B, position 2"
+
+  aisle_B3:
+    type: intersection
+    description: "Aisle B, position 3"
+
+  aisle_B4:
+    type: intersection
+    description: "Aisle B, position 4"
+
+  aisle_B5:
+    type: intersection
+    description: "Aisle B, position 5"
+
+  shelf_B11:
     type: storage
-    description: "Row F, position 1"
+    description: "Aisle B, position 1, north"
 
-  shelf_F2:
+  shelf_B12:
     type: storage
-    description: "Row F, position 2"
+    description: "Aisle B, position 1, south"
 
-  shelf_G1:
+  shelf_B21:
     type: storage
-    description: "Row G, position 1"
+    description: "Aisle B, position 2, north"
 
-  shelf_G2:
+  shelf_B22:
     type: storage
-    description: "Row G, position 2"
+    description: "Aisle B, position 2, south"
 
-  shelf_H1:
+  shelf_B31:
     type: storage
-    description: "Row H, position 1"
+    description: "Aisle B, position 3, north"
 
-  shelf_H2:
+  shelf_B32:
     type: storage
-    description: "Row H, position 2"
+    description: "Aisle B, position 3, south"
 
-  quick_1:
+  shelf_B41:
+    type: storage
+    description: "Aisle B, position 4, north"
+
+  shelf_B42:
+    type: storage
+    description: "Aisle B, position 4, south"
+
+  shelf_B51:
+    type: storage
+    description: "Aisle B, position 5, north"
+
+  shelf_B52:
+    type: storage
+    description: "Aisle B, position 5, south"
+
+  # ── Aisle C positions (runs west from spine_W3) ───────────────────────────────
+  aisle_C1:
+    type: intersection
+    description: "Aisle C, position 1"
+
+  aisle_C2:
+    type: intersection
+    description: "Aisle C, position 2"
+
+  aisle_C3:
+    type: intersection
+    description: "Aisle C, position 3"
+
+  aisle_C4:
+    type: intersection
+    description: "Aisle C, position 4"
+
+  aisle_C5:
+    type: intersection
+    description: "Aisle C, position 5"
+
+  shelf_C11:
+    type: storage
+    description: "Aisle C, position 1, north"
+
+  shelf_C12:
+    type: storage
+    description: "Aisle C, position 1, south"
+
+  shelf_C21:
+    type: storage
+    description: "Aisle C, position 2, north"
+
+  shelf_C22:
+    type: storage
+    description: "Aisle C, position 2, south"
+
+  shelf_C31:
+    type: storage
+    description: "Aisle C, position 3, north"
+
+  shelf_C32:
+    type: storage
+    description: "Aisle C, position 3, south"
+
+  shelf_C41:
+    type: storage
+    description: "Aisle C, position 4, north"
+
+  shelf_C42:
+    type: storage
+    description: "Aisle C, position 4, south"
+
+  shelf_C51:
+    type: storage
+    description: "Aisle C, position 5, north"
+
+  shelf_C52:
+    type: storage
+    description: "Aisle C, position 5, south"
+
+  # ── Aisle D positions (runs west from spine_W4) ───────────────────────────────
+  aisle_D1:
+    type: intersection
+    description: "Aisle D, position 1"
+
+  aisle_D2:
+    type: intersection
+    description: "Aisle D, position 2"
+
+  aisle_D3:
+    type: intersection
+    description: "Aisle D, position 3"
+
+  aisle_D4:
+    type: intersection
+    description: "Aisle D, position 4"
+
+  aisle_D5:
+    type: intersection
+    description: "Aisle D, position 5"
+
+  shelf_D11:
+    type: storage
+    description: "Aisle D, position 1, north"
+
+  shelf_D12:
+    type: storage
+    description: "Aisle D, position 1, south"
+
+  shelf_D21:
+    type: storage
+    description: "Aisle D, position 2, north"
+
+  shelf_D22:
+    type: storage
+    description: "Aisle D, position 2, south"
+
+  shelf_D31:
+    type: storage
+    description: "Aisle D, position 3, north"
+
+  shelf_D32:
+    type: storage
+    description: "Aisle D, position 3, south"
+
+  shelf_D41:
+    type: storage
+    description: "Aisle D, position 4, north"
+
+  shelf_D42:
+    type: storage
+    description: "Aisle D, position 4, south"
+
+  shelf_D51:
+    type: storage
+    description: "Aisle D, position 5, north"
+
+  shelf_D52:
+    type: storage
+    description: "Aisle D, position 5, south"
+
+  # ── Aisle E positions (runs west from spine_W5) ───────────────────────────────
+  aisle_E1:
+    type: intersection
+    description: "Aisle E, position 1"
+
+  aisle_E2:
+    type: intersection
+    description: "Aisle E, position 2"
+
+  aisle_E3:
+    type: intersection
+    description: "Aisle E, position 3"
+
+  aisle_E4:
+    type: intersection
+    description: "Aisle E, position 4"
+
+  aisle_E5:
+    type: intersection
+    description: "Aisle E, position 5"
+
+  shelf_E11:
+    type: storage
+    description: "Aisle E, position 1, north"
+
+  shelf_E12:
+    type: storage
+    description: "Aisle E, position 1, south"
+
+  shelf_E21:
+    type: storage
+    description: "Aisle E, position 2, north"
+
+  shelf_E22:
+    type: storage
+    description: "Aisle E, position 2, south"
+
+  shelf_E31:
+    type: storage
+    description: "Aisle E, position 3, north"
+
+  shelf_E32:
+    type: storage
+    description: "Aisle E, position 3, south"
+
+  shelf_E41:
+    type: storage
+    description: "Aisle E, position 4, north"
+
+  shelf_E42:
+    type: storage
+    description: "Aisle E, position 4, south"
+
+  shelf_E51:
+    type: storage
+    description: "Aisle E, position 5, north"
+
+  shelf_E52:
+    type: storage
+    description: "Aisle E, position 5, south"
+
+  # ── Aisle F positions (runs east from spine_E1) ───────────────────────────────
+  aisle_F1:
+    type: intersection
+    description: "Aisle F, position 1"
+
+  aisle_F2:
+    type: intersection
+    description: "Aisle F, position 2"
+
+  aisle_F3:
+    type: intersection
+    description: "Aisle F, position 3"
+
+  aisle_F4:
+    type: intersection
+    description: "Aisle F, position 4"
+
+  aisle_F5:
+    type: intersection
+    description: "Aisle F, position 5"
+
+  shelf_F11:
+    type: storage
+    description: "Aisle F, position 1, north"
+
+  shelf_F12:
+    type: storage
+    description: "Aisle F, position 1, south"
+
+  shelf_F21:
+    type: storage
+    description: "Aisle F, position 2, north"
+
+  shelf_F22:
+    type: storage
+    description: "Aisle F, position 2, south"
+
+  shelf_F31:
+    type: storage
+    description: "Aisle F, position 3, north"
+
+  shelf_F32:
+    type: storage
+    description: "Aisle F, position 3, south"
+
+  shelf_F41:
+    type: storage
+    description: "Aisle F, position 4, north"
+
+  shelf_F42:
+    type: storage
+    description: "Aisle F, position 4, south"
+
+  shelf_F51:
+    type: storage
+    description: "Aisle F, position 5, north"
+
+  shelf_F52:
+    type: storage
+    description: "Aisle F, position 5, south"
+
+  # ── Aisle G positions (runs east from spine_E2) ───────────────────────────────
+  aisle_G1:
+    type: intersection
+    description: "Aisle G, position 1"
+
+  aisle_G2:
+    type: intersection
+    description: "Aisle G, position 2"
+
+  aisle_G3:
+    type: intersection
+    description: "Aisle G, position 3"
+
+  aisle_G4:
+    type: intersection
+    description: "Aisle G, position 4"
+
+  aisle_G5:
+    type: intersection
+    description: "Aisle G, position 5"
+
+  shelf_G11:
+    type: storage
+    description: "Aisle G, position 1, north"
+
+  shelf_G12:
+    type: storage
+    description: "Aisle G, position 1, south"
+
+  shelf_G21:
+    type: storage
+    description: "Aisle G, position 2, north"
+
+  shelf_G22:
+    type: storage
+    description: "Aisle G, position 2, south"
+
+  shelf_G31:
+    type: storage
+    description: "Aisle G, position 3, north"
+
+  shelf_G32:
+    type: storage
+    description: "Aisle G, position 3, south"
+
+  shelf_G41:
+    type: storage
+    description: "Aisle G, position 4, north"
+
+  shelf_G42:
+    type: storage
+    description: "Aisle G, position 4, south"
+
+  shelf_G51:
+    type: storage
+    description: "Aisle G, position 5, north"
+
+  shelf_G52:
+    type: storage
+    description: "Aisle G, position 5, south"
+
+  # ── Aisle H positions (runs east from spine_E3) ───────────────────────────────
+  aisle_H1:
+    type: intersection
+    description: "Aisle H, position 1"
+
+  aisle_H2:
+    type: intersection
+    description: "Aisle H, position 2"
+
+  aisle_H3:
+    type: intersection
+    description: "Aisle H, position 3"
+
+  aisle_H4:
+    type: intersection
+    description: "Aisle H, position 4"
+
+  aisle_H5:
+    type: intersection
+    description: "Aisle H, position 5"
+
+  shelf_H11:
+    type: storage
+    description: "Aisle H, position 1, north"
+
+  shelf_H12:
+    type: storage
+    description: "Aisle H, position 1, south"
+
+  shelf_H21:
+    type: storage
+    description: "Aisle H, position 2, north"
+
+  shelf_H22:
+    type: storage
+    description: "Aisle H, position 2, south"
+
+  shelf_H31:
+    type: storage
+    description: "Aisle H, position 3, north"
+
+  shelf_H32:
+    type: storage
+    description: "Aisle H, position 3, south"
+
+  shelf_H41:
+    type: storage
+    description: "Aisle H, position 4, north"
+
+  shelf_H42:
+    type: storage
+    description: "Aisle H, position 4, south"
+
+  shelf_H51:
+    type: storage
+    description: "Aisle H, position 5, north"
+
+  shelf_H52:
+    type: storage
+    description: "Aisle H, position 5, south"
+
+  # ── Aisle I positions (runs east from spine_E4) ───────────────────────────────
+  aisle_I1:
+    type: intersection
+    description: "Aisle I, position 1"
+
+  aisle_I2:
+    type: intersection
+    description: "Aisle I, position 2"
+
+  aisle_I3:
+    type: intersection
+    description: "Aisle I, position 3"
+
+  aisle_I4:
+    type: intersection
+    description: "Aisle I, position 4"
+
+  aisle_I5:
+    type: intersection
+    description: "Aisle I, position 5"
+
+  shelf_I11:
+    type: storage
+    description: "Aisle I, position 1, north"
+
+  shelf_I12:
+    type: storage
+    description: "Aisle I, position 1, south"
+
+  shelf_I21:
+    type: storage
+    description: "Aisle I, position 2, north"
+
+  shelf_I22:
+    type: storage
+    description: "Aisle I, position 2, south"
+
+  shelf_I31:
+    type: storage
+    description: "Aisle I, position 3, north"
+
+  shelf_I32:
+    type: storage
+    description: "Aisle I, position 3, south"
+
+  shelf_I41:
+    type: storage
+    description: "Aisle I, position 4, north"
+
+  shelf_I42:
+    type: storage
+    description: "Aisle I, position 4, south"
+
+  shelf_I51:
+    type: storage
+    description: "Aisle I, position 5, north"
+
+  shelf_I52:
+    type: storage
+    description: "Aisle I, position 5, south"
+
+  # ── Aisle J positions (runs east from spine_E5) ───────────────────────────────
+  aisle_J1:
+    type: intersection
+    description: "Aisle J, position 1"
+
+  aisle_J2:
+    type: intersection
+    description: "Aisle J, position 2"
+
+  aisle_J3:
+    type: intersection
+    description: "Aisle J, position 3"
+
+  aisle_J4:
+    type: intersection
+    description: "Aisle J, position 4"
+
+  aisle_J5:
+    type: intersection
+    description: "Aisle J, position 5"
+
+  shelf_J11:
+    type: storage
+    description: "Aisle J, position 1, north"
+
+  shelf_J12:
+    type: storage
+    description: "Aisle J, position 1, south"
+
+  shelf_J21:
+    type: storage
+    description: "Aisle J, position 2, north"
+
+  shelf_J22:
+    type: storage
+    description: "Aisle J, position 2, south"
+
+  shelf_J31:
+    type: storage
+    description: "Aisle J, position 3, north"
+
+  shelf_J32:
+    type: storage
+    description: "Aisle J, position 3, south"
+
+  shelf_J41:
+    type: storage
+    description: "Aisle J, position 4, north"
+
+  shelf_J42:
+    type: storage
+    description: "Aisle J, position 4, south"
+
+  shelf_J51:
+    type: storage
+    description: "Aisle J, position 5, north"
+
+  shelf_J52:
+    type: storage
+    description: "Aisle J, position 5, south"
+
+  # ── Quick access (one position per side, two spots each) ─────────────────────
+  qa_W:
+    type: intersection
+    description: "Quick access aisle position (west)"
+
+  qa_W1:
     type: quick_access
-    description: "Quick access spot (west)"
+    description: "Quick access spot (west, north)"
 
-  quick_2:
+  qa_W2:
     type: quick_access
-    description: "Quick access spot (east)"
+    description: "Quick access spot (west, south)"
 
+  qa_E:
+    type: intersection
+    description: "Quick access aisle position (east)"
+
+  qa_E1:
+    type: quick_access
+    description: "Quick access spot (east, north)"
+
+  qa_E2:
+    type: quick_access
+    description: "Quick access spot (east, south)"
+
+  # ── Loading/unloading docks ───────────────────────────────────────────────────
   dock_1:
     type: loading_unloading
     description: "Loading/unloading dock (west)"
@@ -165,47 +747,213 @@ waypoints:
 # bearing is the direction FROM 'from' TO 'to'.
 # All edges are bidirectional for navigation.
 edges:
-  # ── West spine (south) ──────────────────────────────────────────────────────
-  - { from: charge_1,  to: inter_L1,  bearing: 180, distance: 3.0 }
-  - { from: inter_L1,  to: inter_L2,  bearing: 180, distance: 4.0 }
-  - { from: inter_L2,  to: inter_L3,  bearing: 180, distance: 4.0 }
-  - { from: inter_L3,  to: inter_L4,  bearing: 180, distance: 4.0 }
-  - { from: inter_L4,  to: inter_L5,  bearing: 180, distance: 4.0 }
-  - { from: inter_L5,  to: quick_1,   bearing: 180, distance: 2.0 }
-  - { from: quick_1,   to: dock_1,    bearing: 180, distance: 3.0 }
 
-  # ── East spine (south) ──────────────────────────────────────────────────────
-  - { from: charge_2,  to: inter_R1,  bearing: 180, distance: 3.0 }
-  - { from: inter_R1,  to: inter_R2,  bearing: 180, distance: 4.0 }
-  - { from: inter_R2,  to: inter_R3,  bearing: 180, distance: 4.0 }
-  - { from: inter_R3,  to: inter_R4,  bearing: 180, distance: 4.0 }
-  - { from: inter_R4,  to: inter_R5,  bearing: 180, distance: 4.0 }
-  - { from: inter_R5,  to: quick_2,   bearing: 180, distance: 2.0 }
-  - { from: quick_2,   to: dock_2,    bearing: 180, distance: 3.0 }
+  # ── Charger row (east-west, north wall) ──────────────────────────────────────
+  - { from: charge_1,  to: charge_2,   bearing:  90, distance: 4.0 }
+  - { from: charge_2,  to: charge_3,   bearing:  90, distance: 4.0 }
+  - { from: charge_3,  to: charge_4,   bearing:  90, distance: 4.0 }
 
-  # ── East-west cross corridors ────────────────────────────────────────────────
-  - { from: charge_1,  to: charge_2,  bearing:  90, distance: 10.0 }
-  - { from: inter_L2,  to: inter_R2,  bearing:  90, distance: 10.0 }
-  - { from: inter_L3,  to: inter_R3,  bearing:  90, distance: 10.0 }
-  - { from: inter_L4,  to: inter_R4,  bearing:  90, distance: 10.0 }
-  - { from: dock_1,    to: dock_2,    bearing:  90, distance: 10.0 }
+  # ── West spine (south from charge_2) ─────────────────────────────────────────
+  - { from: charge_2,  to: spine_W1,   bearing: 180, distance: 8.0 }
+  - { from: spine_W1,  to: spine_W2,   bearing: 180, distance: 8.0 }
+  - { from: spine_W2,  to: spine_W3,   bearing: 180, distance: 8.0 }
+  - { from: spine_W3,  to: spine_W4,   bearing: 180, distance: 8.0 }
+  - { from: spine_W4,  to: spine_W5,   bearing: 180, distance: 8.0 }
+  - { from: spine_W5,  to: spine_Wqa,  bearing: 180, distance: 6.0 }
+  - { from: spine_Wqa, to: dock_1,     bearing: 180, distance: 6.0 }
 
-  # ── West shelves (rows A–D, branching west from west spine) ──────────────────
-  - { from: inter_L1,  to: shelf_A1,  bearing: 270, distance: 3.0 }
-  - { from: shelf_A1,  to: shelf_A2,  bearing: 270, distance: 2.0 }
-  - { from: inter_L2,  to: shelf_B1,  bearing: 270, distance: 3.0 }
-  - { from: shelf_B1,  to: shelf_B2,  bearing: 270, distance: 2.0 }
-  - { from: inter_L3,  to: shelf_C1,  bearing: 270, distance: 3.0 }
-  - { from: shelf_C1,  to: shelf_C2,  bearing: 270, distance: 2.0 }
-  - { from: inter_L4,  to: shelf_D1,  bearing: 270, distance: 3.0 }
-  - { from: shelf_D1,  to: shelf_D2,  bearing: 270, distance: 2.0 }
+  # ── East spine (south from charge_3) ─────────────────────────────────────────
+  - { from: charge_3,  to: spine_E1,   bearing: 180, distance: 8.0 }
+  - { from: spine_E1,  to: spine_E2,   bearing: 180, distance: 8.0 }
+  - { from: spine_E2,  to: spine_E3,   bearing: 180, distance: 8.0 }
+  - { from: spine_E3,  to: spine_E4,   bearing: 180, distance: 8.0 }
+  - { from: spine_E4,  to: spine_E5,   bearing: 180, distance: 8.0 }
+  - { from: spine_E5,  to: spine_Eqa,  bearing: 180, distance: 6.0 }
+  - { from: spine_Eqa, to: dock_2,     bearing: 180, distance: 6.0 }
 
-  # ── East shelves (rows E–H, branching east from east spine) ──────────────────
-  - { from: inter_R1,  to: shelf_E1,  bearing:  90, distance: 3.0 }
-  - { from: shelf_E1,  to: shelf_E2,  bearing:  90, distance: 2.0 }
-  - { from: inter_R2,  to: shelf_F1,  bearing:  90, distance: 3.0 }
-  - { from: shelf_F1,  to: shelf_F2,  bearing:  90, distance: 2.0 }
-  - { from: inter_R3,  to: shelf_G1,  bearing:  90, distance: 3.0 }
-  - { from: shelf_G1,  to: shelf_G2,  bearing:  90, distance: 2.0 }
-  - { from: inter_R4,  to: shelf_H1,  bearing:  90, distance: 3.0 }
-  - { from: shelf_H1,  to: shelf_H2,  bearing:  90, distance: 2.0 }
+  # ── East-west cross corridors (double-wide central artery) ───────────────────
+  - { from: spine_W1,  to: spine_E1,   bearing:  90, distance: 4.0 }
+  - { from: spine_W2,  to: spine_E2,   bearing:  90, distance: 4.0 }
+  - { from: spine_W3,  to: spine_E3,   bearing:  90, distance: 4.0 }
+  - { from: spine_W4,  to: spine_E4,   bearing:  90, distance: 4.0 }
+  - { from: spine_W5,  to: spine_E5,   bearing:  90, distance: 4.0 }
+  - { from: spine_Wqa, to: spine_Eqa,  bearing:  90, distance: 4.0 }
+  - { from: dock_1,    to: dock_2,     bearing:  90, distance: 4.0 }
+
+  # ── Aisle A (west, from spine_W1) ────────────────────────────────────────────
+  - { from: spine_W1,  to: aisle_A1,   bearing: 270, distance: 3.0 }
+  - { from: aisle_A1,  to: aisle_A2,   bearing: 270, distance: 2.0 }
+  - { from: aisle_A2,  to: aisle_A3,   bearing: 270, distance: 2.0 }
+  - { from: aisle_A3,  to: aisle_A4,   bearing: 270, distance: 2.0 }
+  - { from: aisle_A4,  to: aisle_A5,   bearing: 270, distance: 2.0 }
+  - { from: aisle_A1,  to: shelf_A11,  bearing:   0, distance: 1.5 }
+  - { from: aisle_A1,  to: shelf_A12,  bearing: 180, distance: 1.5 }
+  - { from: aisle_A2,  to: shelf_A21,  bearing:   0, distance: 1.5 }
+  - { from: aisle_A2,  to: shelf_A22,  bearing: 180, distance: 1.5 }
+  - { from: aisle_A3,  to: shelf_A31,  bearing:   0, distance: 1.5 }
+  - { from: aisle_A3,  to: shelf_A32,  bearing: 180, distance: 1.5 }
+  - { from: aisle_A4,  to: shelf_A41,  bearing:   0, distance: 1.5 }
+  - { from: aisle_A4,  to: shelf_A42,  bearing: 180, distance: 1.5 }
+  - { from: aisle_A5,  to: shelf_A51,  bearing:   0, distance: 1.5 }
+  - { from: aisle_A5,  to: shelf_A52,  bearing: 180, distance: 1.5 }
+
+  # ── Aisle B (west, from spine_W2) ────────────────────────────────────────────
+  - { from: spine_W2,  to: aisle_B1,   bearing: 270, distance: 3.0 }
+  - { from: aisle_B1,  to: aisle_B2,   bearing: 270, distance: 2.0 }
+  - { from: aisle_B2,  to: aisle_B3,   bearing: 270, distance: 2.0 }
+  - { from: aisle_B3,  to: aisle_B4,   bearing: 270, distance: 2.0 }
+  - { from: aisle_B4,  to: aisle_B5,   bearing: 270, distance: 2.0 }
+  - { from: aisle_B1,  to: shelf_B11,  bearing:   0, distance: 1.5 }
+  - { from: aisle_B1,  to: shelf_B12,  bearing: 180, distance: 1.5 }
+  - { from: aisle_B2,  to: shelf_B21,  bearing:   0, distance: 1.5 }
+  - { from: aisle_B2,  to: shelf_B22,  bearing: 180, distance: 1.5 }
+  - { from: aisle_B3,  to: shelf_B31,  bearing:   0, distance: 1.5 }
+  - { from: aisle_B3,  to: shelf_B32,  bearing: 180, distance: 1.5 }
+  - { from: aisle_B4,  to: shelf_B41,  bearing:   0, distance: 1.5 }
+  - { from: aisle_B4,  to: shelf_B42,  bearing: 180, distance: 1.5 }
+  - { from: aisle_B5,  to: shelf_B51,  bearing:   0, distance: 1.5 }
+  - { from: aisle_B5,  to: shelf_B52,  bearing: 180, distance: 1.5 }
+
+  # ── Aisle C (west, from spine_W3) ────────────────────────────────────────────
+  - { from: spine_W3,  to: aisle_C1,   bearing: 270, distance: 3.0 }
+  - { from: aisle_C1,  to: aisle_C2,   bearing: 270, distance: 2.0 }
+  - { from: aisle_C2,  to: aisle_C3,   bearing: 270, distance: 2.0 }
+  - { from: aisle_C3,  to: aisle_C4,   bearing: 270, distance: 2.0 }
+  - { from: aisle_C4,  to: aisle_C5,   bearing: 270, distance: 2.0 }
+  - { from: aisle_C1,  to: shelf_C11,  bearing:   0, distance: 1.5 }
+  - { from: aisle_C1,  to: shelf_C12,  bearing: 180, distance: 1.5 }
+  - { from: aisle_C2,  to: shelf_C21,  bearing:   0, distance: 1.5 }
+  - { from: aisle_C2,  to: shelf_C22,  bearing: 180, distance: 1.5 }
+  - { from: aisle_C3,  to: shelf_C31,  bearing:   0, distance: 1.5 }
+  - { from: aisle_C3,  to: shelf_C32,  bearing: 180, distance: 1.5 }
+  - { from: aisle_C4,  to: shelf_C41,  bearing:   0, distance: 1.5 }
+  - { from: aisle_C4,  to: shelf_C42,  bearing: 180, distance: 1.5 }
+  - { from: aisle_C5,  to: shelf_C51,  bearing:   0, distance: 1.5 }
+  - { from: aisle_C5,  to: shelf_C52,  bearing: 180, distance: 1.5 }
+
+  # ── Aisle D (west, from spine_W4) ────────────────────────────────────────────
+  - { from: spine_W4,  to: aisle_D1,   bearing: 270, distance: 3.0 }
+  - { from: aisle_D1,  to: aisle_D2,   bearing: 270, distance: 2.0 }
+  - { from: aisle_D2,  to: aisle_D3,   bearing: 270, distance: 2.0 }
+  - { from: aisle_D3,  to: aisle_D4,   bearing: 270, distance: 2.0 }
+  - { from: aisle_D4,  to: aisle_D5,   bearing: 270, distance: 2.0 }
+  - { from: aisle_D1,  to: shelf_D11,  bearing:   0, distance: 1.5 }
+  - { from: aisle_D1,  to: shelf_D12,  bearing: 180, distance: 1.5 }
+  - { from: aisle_D2,  to: shelf_D21,  bearing:   0, distance: 1.5 }
+  - { from: aisle_D2,  to: shelf_D22,  bearing: 180, distance: 1.5 }
+  - { from: aisle_D3,  to: shelf_D31,  bearing:   0, distance: 1.5 }
+  - { from: aisle_D3,  to: shelf_D32,  bearing: 180, distance: 1.5 }
+  - { from: aisle_D4,  to: shelf_D41,  bearing:   0, distance: 1.5 }
+  - { from: aisle_D4,  to: shelf_D42,  bearing: 180, distance: 1.5 }
+  - { from: aisle_D5,  to: shelf_D51,  bearing:   0, distance: 1.5 }
+  - { from: aisle_D5,  to: shelf_D52,  bearing: 180, distance: 1.5 }
+
+  # ── Aisle E (west, from spine_W5) ────────────────────────────────────────────
+  - { from: spine_W5,  to: aisle_E1,   bearing: 270, distance: 3.0 }
+  - { from: aisle_E1,  to: aisle_E2,   bearing: 270, distance: 2.0 }
+  - { from: aisle_E2,  to: aisle_E3,   bearing: 270, distance: 2.0 }
+  - { from: aisle_E3,  to: aisle_E4,   bearing: 270, distance: 2.0 }
+  - { from: aisle_E4,  to: aisle_E5,   bearing: 270, distance: 2.0 }
+  - { from: aisle_E1,  to: shelf_E11,  bearing:   0, distance: 1.5 }
+  - { from: aisle_E1,  to: shelf_E12,  bearing: 180, distance: 1.5 }
+  - { from: aisle_E2,  to: shelf_E21,  bearing:   0, distance: 1.5 }
+  - { from: aisle_E2,  to: shelf_E22,  bearing: 180, distance: 1.5 }
+  - { from: aisle_E3,  to: shelf_E31,  bearing:   0, distance: 1.5 }
+  - { from: aisle_E3,  to: shelf_E32,  bearing: 180, distance: 1.5 }
+  - { from: aisle_E4,  to: shelf_E41,  bearing:   0, distance: 1.5 }
+  - { from: aisle_E4,  to: shelf_E42,  bearing: 180, distance: 1.5 }
+  - { from: aisle_E5,  to: shelf_E51,  bearing:   0, distance: 1.5 }
+  - { from: aisle_E5,  to: shelf_E52,  bearing: 180, distance: 1.5 }
+
+  # ── Aisle F (east, from spine_E1) ────────────────────────────────────────────
+  - { from: spine_E1,  to: aisle_F1,   bearing:  90, distance: 3.0 }
+  - { from: aisle_F1,  to: aisle_F2,   bearing:  90, distance: 2.0 }
+  - { from: aisle_F2,  to: aisle_F3,   bearing:  90, distance: 2.0 }
+  - { from: aisle_F3,  to: aisle_F4,   bearing:  90, distance: 2.0 }
+  - { from: aisle_F4,  to: aisle_F5,   bearing:  90, distance: 2.0 }
+  - { from: aisle_F1,  to: shelf_F11,  bearing:   0, distance: 1.5 }
+  - { from: aisle_F1,  to: shelf_F12,  bearing: 180, distance: 1.5 }
+  - { from: aisle_F2,  to: shelf_F21,  bearing:   0, distance: 1.5 }
+  - { from: aisle_F2,  to: shelf_F22,  bearing: 180, distance: 1.5 }
+  - { from: aisle_F3,  to: shelf_F31,  bearing:   0, distance: 1.5 }
+  - { from: aisle_F3,  to: shelf_F32,  bearing: 180, distance: 1.5 }
+  - { from: aisle_F4,  to: shelf_F41,  bearing:   0, distance: 1.5 }
+  - { from: aisle_F4,  to: shelf_F42,  bearing: 180, distance: 1.5 }
+  - { from: aisle_F5,  to: shelf_F51,  bearing:   0, distance: 1.5 }
+  - { from: aisle_F5,  to: shelf_F52,  bearing: 180, distance: 1.5 }
+
+  # ── Aisle G (east, from spine_E2) ────────────────────────────────────────────
+  - { from: spine_E2,  to: aisle_G1,   bearing:  90, distance: 3.0 }
+  - { from: aisle_G1,  to: aisle_G2,   bearing:  90, distance: 2.0 }
+  - { from: aisle_G2,  to: aisle_G3,   bearing:  90, distance: 2.0 }
+  - { from: aisle_G3,  to: aisle_G4,   bearing:  90, distance: 2.0 }
+  - { from: aisle_G4,  to: aisle_G5,   bearing:  90, distance: 2.0 }
+  - { from: aisle_G1,  to: shelf_G11,  bearing:   0, distance: 1.5 }
+  - { from: aisle_G1,  to: shelf_G12,  bearing: 180, distance: 1.5 }
+  - { from: aisle_G2,  to: shelf_G21,  bearing:   0, distance: 1.5 }
+  - { from: aisle_G2,  to: shelf_G22,  bearing: 180, distance: 1.5 }
+  - { from: aisle_G3,  to: shelf_G31,  bearing:   0, distance: 1.5 }
+  - { from: aisle_G3,  to: shelf_G32,  bearing: 180, distance: 1.5 }
+  - { from: aisle_G4,  to: shelf_G41,  bearing:   0, distance: 1.5 }
+  - { from: aisle_G4,  to: shelf_G42,  bearing: 180, distance: 1.5 }
+  - { from: aisle_G5,  to: shelf_G51,  bearing:   0, distance: 1.5 }
+  - { from: aisle_G5,  to: shelf_G52,  bearing: 180, distance: 1.5 }
+
+  # ── Aisle H (east, from spine_E3) ────────────────────────────────────────────
+  - { from: spine_E3,  to: aisle_H1,   bearing:  90, distance: 3.0 }
+  - { from: aisle_H1,  to: aisle_H2,   bearing:  90, distance: 2.0 }
+  - { from: aisle_H2,  to: aisle_H3,   bearing:  90, distance: 2.0 }
+  - { from: aisle_H3,  to: aisle_H4,   bearing:  90, distance: 2.0 }
+  - { from: aisle_H4,  to: aisle_H5,   bearing:  90, distance: 2.0 }
+  - { from: aisle_H1,  to: shelf_H11,  bearing:   0, distance: 1.5 }
+  - { from: aisle_H1,  to: shelf_H12,  bearing: 180, distance: 1.5 }
+  - { from: aisle_H2,  to: shelf_H21,  bearing:   0, distance: 1.5 }
+  - { from: aisle_H2,  to: shelf_H22,  bearing: 180, distance: 1.5 }
+  - { from: aisle_H3,  to: shelf_H31,  bearing:   0, distance: 1.5 }
+  - { from: aisle_H3,  to: shelf_H32,  bearing: 180, distance: 1.5 }
+  - { from: aisle_H4,  to: shelf_H41,  bearing:   0, distance: 1.5 }
+  - { from: aisle_H4,  to: shelf_H42,  bearing: 180, distance: 1.5 }
+  - { from: aisle_H5,  to: shelf_H51,  bearing:   0, distance: 1.5 }
+  - { from: aisle_H5,  to: shelf_H52,  bearing: 180, distance: 1.5 }
+
+  # ── Aisle I (east, from spine_E4) ────────────────────────────────────────────
+  - { from: spine_E4,  to: aisle_I1,   bearing:  90, distance: 3.0 }
+  - { from: aisle_I1,  to: aisle_I2,   bearing:  90, distance: 2.0 }
+  - { from: aisle_I2,  to: aisle_I3,   bearing:  90, distance: 2.0 }
+  - { from: aisle_I3,  to: aisle_I4,   bearing:  90, distance: 2.0 }
+  - { from: aisle_I4,  to: aisle_I5,   bearing:  90, distance: 2.0 }
+  - { from: aisle_I1,  to: shelf_I11,  bearing:   0, distance: 1.5 }
+  - { from: aisle_I1,  to: shelf_I12,  bearing: 180, distance: 1.5 }
+  - { from: aisle_I2,  to: shelf_I21,  bearing:   0, distance: 1.5 }
+  - { from: aisle_I2,  to: shelf_I22,  bearing: 180, distance: 1.5 }
+  - { from: aisle_I3,  to: shelf_I31,  bearing:   0, distance: 1.5 }
+  - { from: aisle_I3,  to: shelf_I32,  bearing: 180, distance: 1.5 }
+  - { from: aisle_I4,  to: shelf_I41,  bearing:   0, distance: 1.5 }
+  - { from: aisle_I4,  to: shelf_I42,  bearing: 180, distance: 1.5 }
+  - { from: aisle_I5,  to: shelf_I51,  bearing:   0, distance: 1.5 }
+  - { from: aisle_I5,  to: shelf_I52,  bearing: 180, distance: 1.5 }
+
+  # ── Aisle J (east, from spine_E5) ────────────────────────────────────────────
+  - { from: spine_E5,  to: aisle_J1,   bearing:  90, distance: 3.0 }
+  - { from: aisle_J1,  to: aisle_J2,   bearing:  90, distance: 2.0 }
+  - { from: aisle_J2,  to: aisle_J3,   bearing:  90, distance: 2.0 }
+  - { from: aisle_J3,  to: aisle_J4,   bearing:  90, distance: 2.0 }
+  - { from: aisle_J4,  to: aisle_J5,   bearing:  90, distance: 2.0 }
+  - { from: aisle_J1,  to: shelf_J11,  bearing:   0, distance: 1.5 }
+  - { from: aisle_J1,  to: shelf_J12,  bearing: 180, distance: 1.5 }
+  - { from: aisle_J2,  to: shelf_J21,  bearing:   0, distance: 1.5 }
+  - { from: aisle_J2,  to: shelf_J22,  bearing: 180, distance: 1.5 }
+  - { from: aisle_J3,  to: shelf_J31,  bearing:   0, distance: 1.5 }
+  - { from: aisle_J3,  to: shelf_J32,  bearing: 180, distance: 1.5 }
+  - { from: aisle_J4,  to: shelf_J41,  bearing:   0, distance: 1.5 }
+  - { from: aisle_J4,  to: shelf_J42,  bearing: 180, distance: 1.5 }
+  - { from: aisle_J5,  to: shelf_J51,  bearing:   0, distance: 1.5 }
+  - { from: aisle_J5,  to: shelf_J52,  bearing: 180, distance: 1.5 }
+
+  # ── Quick access (just before docks) ─────────────────────────────────────────
+  - { from: spine_Wqa, to: qa_W,       bearing: 270, distance: 3.0 }
+  - { from: qa_W,      to: qa_W1,      bearing:   0, distance: 1.5 }
+  - { from: qa_W,      to: qa_W2,      bearing: 180, distance: 1.5 }
+  - { from: spine_Eqa, to: qa_E,       bearing:  90, distance: 3.0 }
+  - { from: qa_E,      to: qa_E1,      bearing:   0, distance: 1.5 }
+  - { from: qa_E,      to: qa_E2,      bearing: 180, distance: 1.5 }

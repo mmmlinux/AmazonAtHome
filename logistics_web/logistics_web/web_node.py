@@ -80,17 +80,19 @@ class RobotState:
 
 class _State:
     def __init__(self):
-        self.robots:     dict[str, RobotState] = {}
-        self.queue_size: int                   = 0
-        self.slots:      dict[str, bool]       = {}
+        self.robots:      dict[str, RobotState] = {}
+        self.queue_size:  int                   = 0
+        self.queue_items: list[str]             = []
+        self.slots:       dict[str, bool]       = {}
         self.lock = threading.Lock()
 
     def snapshot(self) -> str:
         with self.lock:
             return json.dumps({
-                'robots':     {rid: asdict(s) for rid, s in self.robots.items()},
-                'queue_size': self.queue_size,
-                'slots':      dict(self.slots),
+                'robots':      {rid: asdict(s) for rid, s in self.robots.items()},
+                'queue_size':  self.queue_size,
+                'queue_items': list(self.queue_items),
+                'slots':       dict(self.slots),
             })
 
 
@@ -291,6 +293,7 @@ class WebNode(Node):
             s.task_detail       = msg.task_detail
             s.movement_priority = msg.movement_priority
             _state.queue_size   = msg.queue_size
+            _state.queue_items  = list(msg.queue_items)
 
     def _on_warehouse_state(self, msg: WarehouseState) -> None:
         with _state.lock:
