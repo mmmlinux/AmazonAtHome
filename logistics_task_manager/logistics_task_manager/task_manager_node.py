@@ -349,6 +349,7 @@ class TaskManagerNode(Node):
         return path
 
     def _nearest_charger(self, from_wp: str) -> str:
+        """Return the closest charging waypoint by Dijkstra distance."""
         chargers = [
             wp for wp, info in self._waypoint_info.items()
             if info.get('type') == 'charging'
@@ -631,6 +632,19 @@ class TaskManagerNode(Node):
         robot.is_returning = False
 
     def _run_pickup(self, robot: RobotAgent, slot: str) -> None:
+        """
+        Execute a pickup task: navigate to slot, pick up box, deliver to dock.
+
+        Sequence:
+          1. Navigate (empty) to the storage slot.
+          2. Simulate pick-up (2 s) and mark slot unoccupied.
+          3. Reserve the nearest free unload dock atomically (_pick_dock).
+          4. Navigate (loaded) to the dock.
+          5. Simulate drop-off (2 s) — dock stays occupied.
+
+        On low battery at any step: re-queue the task and divert to charger.
+        On critical battery while loaded: emergency drop via task_manager.
+        """
         self.get_logger().info(f'[{robot.robot_id}] Pickup: {slot}')
 
         # Skip if slot is known to be empty
@@ -683,6 +697,19 @@ class TaskManagerNode(Node):
         # Dock stays occupied (item is now there)
 
     def _run_delivery(self, robot: RobotAgent, slot: str) -> None:
+        """
+        Execute a delivery task: pick up from a dock, navigate to destination slot.
+
+        Sequence:
+          1. Find an occupied load dock (_pick_dock, need_occupied=True).
+          2. Navigate (empty) to the dock.
+          3. Simulate pick-up (2 s) and mark dock unoccupied.
+          4. Navigate (loaded) to the destination slot.
+          5. Simulate drop-off (2 s) and mark slot occupied.
+
+        On low battery at any step: re-queue the task and divert to charger.
+        On critical battery while loaded: emergency drop via task_manager.
+        """
         self.get_logger().info(f'[{robot.robot_id}] Delivery: {slot}')
 
         # Find a load dock that has an item ready

@@ -1,3 +1,37 @@
+"""
+Robot Simulator — physics model for a single warehouse robot.
+
+Accepts MoveToWaypoint action goals from nav_server and simulates travel by
+sleeping for the appropriate wall-clock time, then reporting the result.
+Simultaneously drains the battery while moving and charges it while stationary
+at a recognised charging waypoint.
+
+The node is launched once per robot under a unique namespace (robot_1/,
+robot_2/, …) so all topic and action names are automatically scoped.
+
+Actions served
+--------------
+  move_to_waypoint   logistics_interfaces/action/MoveToWaypoint
+    Input : target_waypoint, distance (m), heading_deg, turn_deg
+    Output: success, final_waypoint, message
+    Feedback: current_waypoint, distance_remaining
+
+Topics published
+----------------
+  robot_status   logistics_interfaces/msg/RobotStatus   (4 Hz + on change)
+    current_waypoint, target_waypoint, is_moving,
+    travel_progress (0–1), battery_level (%)
+
+Parameters
+----------
+  travel_speed             m/s                    (default 1.0)
+  start_waypoint           initial waypoint ID    (default 'charge_1')
+  initial_battery          starting charge %      (default 100.0)
+  discharge_rate_per_meter battery % lost per m   (default 0.5)
+  charge_rate_per_second   battery % gained/s     (default 10.0)
+  charging_waypoints       comma-separated list   (default 'charge_1,charge_2')
+"""
+
 import threading
 import time
 
@@ -91,6 +125,13 @@ class RobotSim(Node):
     # ── Charging timer ────────────────────────────────────────────────────────
 
     def _charging_tick(self) -> None:
+        """
+        Called every CHARGE_TIMER_PERIOD seconds.
+
+        Adds charge only when the robot is stationary at a recognised charging
+        waypoint.  The `_is_moving` guard prevents a race where the timer fires
+        mid-move and incorrectly charges while the robot is en route.
+        """
         if self._is_moving:
             return
         if self.current_waypoint not in self._charging_waypoints:
@@ -111,6 +152,12 @@ class RobotSim(Node):
         target: str,
         progress: float = 0.0,
     ) -> None:
+        """
+        Publish a RobotStatus snapshot.
+
+        progress is the fraction of the current edge completed (0.0–1.0); the
+        web UI uses this to interpolate the robot dot between waypoints.
+        """
         msg = RobotStatus()
         msg.current_waypoint  = self.current_waypoint
         msg.target_waypoint   = target
@@ -122,6 +169,16 @@ class RobotSim(Node):
     # ── Action: MoveToWaypoint ────────────────────────────────────────────────
 
     def _execute_move(self, goal_handle):
+        """
+        Execute one movement leg (current waypoint → target waypoint).
+
+        Divides the travel time into ~4 Hz update steps so that
+        travel_progress advances smoothly and the web UI can animate the
+        robot dot.  Battery is drained proportionally to distance each step.
+
+        The turn_deg field is accepted but not physically simulated — it is
+        there for future hardware integration where turning in place takes time.
+        """
         target   = goal_handle.request.target_waypoint
         distance = float(goal_handle.request.distance)
         heading  = float(goal_handle.request.heading_deg)

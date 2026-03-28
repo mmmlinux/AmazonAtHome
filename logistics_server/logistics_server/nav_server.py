@@ -1,3 +1,61 @@
+"""
+Navigation Server — pathfinding, task execution, and collision avoidance.
+
+One instance runs per robot, scoped under its namespace (robot_1/, robot_2/).
+It owns the Dijkstra graph, processes LogisticsTask action goals from the task
+manager, and drives the robot hop-by-hop via MoveToWaypoint action goals sent
+to robot_sim.
+
+Collision avoidance
+-------------------
+Before stepping onto any waypoint the nav_server calls the global
+TrafficControllerNode (traffic/acquire service).  The TC grants or denies
+permission; on denial the nav_server waits and retries.  If the TC detects a
+deadlock it publishes a yield signal on /{robot_id}/yield_request, which
+interrupts the retry loop and triggers a one-hop retreat.
+
+Each step also reruns Dijkstra with a +50 m penalty on peer-robot positions so
+the planned route naturally routes around occupied waypoints without hard-blocking.
+
+Battery lockout
+---------------
+Battery thresholds are enforced at the nav_server level (not task_manager) so
+the robot always handles its own diversion.
+
+  < min_battery  (empty robot) : navigate to nearest free charger, charge to 80%,
+                                  then abort the goal for re-queue.
+  < critical_battery (carrying): abort immediately; task_manager handles
+                                  the emergency drop.
+
+Actions served
+--------------
+  logistics_task   logistics_interfaces/action/LogisticsTask   (task_manager → nav_server)
+
+Actions used
+------------
+  move_to_waypoint   logistics_interfaces/action/MoveToWaypoint   (nav_server → robot_sim)
+
+Services used
+-------------
+  /traffic/acquire   logistics_interfaces/srv/AcquireWaypoint
+  /traffic/release   logistics_interfaces/srv/ReleaseWaypoint
+
+Topics subscribed
+-----------------
+  robot_status         logistics_interfaces/msg/RobotStatus    (own battery/position)
+  yield_request        std_msgs/msg/Empty                      (TC deadlock signal)
+  /warehouse_state     logistics_interfaces/msg/WarehouseState (slot occupancy)
+  /{peer}/robot_status logistics_interfaces/msg/RobotStatus    (peer positions)
+
+Parameters
+----------
+  map_file          path to warehouse YAML
+  robot_start       starting waypoint ID   (default 'charge_1')
+  peers             comma-separated peer robot IDs (e.g. 'robot_2')
+  min_battery       empty-robot charge threshold % (default 50.0)
+  critical_battery  loaded-robot emergency-drop threshold % (default 25.0)
+"""
+
 import heapq
 import math
 import threading
@@ -194,6 +252,11 @@ class NavServer(Node):
     # ------------------------------------------------------------------
 
     def _load_map(self, map_file: str) -> None:
+        """
+        Parse the warehouse YAML and populate self.waypoint_info and self.graph.
+
+        Raises RuntimeError if map_file is empty (misconfigured launch).
+        """
         if not map_file:
             self.get_logger().fatal('map_file parameter is required')
             raise RuntimeError('map_file parameter not set')
@@ -213,13 +276,16 @@ class NavServer(Node):
     # ------------------------------------------------------------------
 
     def _on_robot_status(self, msg: RobotStatus) -> None:
+        """Update battery level from the robot_sim's periodic status publish."""
         with self._battery_lock:
             self._battery_level = float(msg.battery_level)
 
     def _on_peer_status(self, peer_id: str, msg: RobotStatus) -> None:
+        """Track peer robot positions for Dijkstra penalty and charger avoidance."""
         self._peer_positions[peer_id] = msg.current_waypoint
 
     def _on_warehouse_state(self, msg: WarehouseState) -> None:
+        """Cache slot occupancy so battery-divert logic can find empty storage spots."""
         self._slot_occupied = {s.waypoint_id: s.occupied for s in msg.slots}
 
     # ------------------------------------------------------------------
@@ -246,6 +312,8 @@ class NavServer(Node):
             return True  # TC not running — no-op
 
         deadline = time.time() + timeout
+        # Higher-priority robots poll more aggressively so they naturally win
+        # contested waypoints over lower-priority ones.
         retry_interval = max(0.05, 0.3 - priority * 0.05)
 
         while time.time() < deadline:
@@ -259,6 +327,9 @@ class NavServer(Node):
             req.waypoint = waypoint
             req.priority = priority
 
+            # Bridge the async service call back to synchronous with an Event.
+            # The default callback group is Reentrant, so this fires on the
+            # executor thread while we block here on the action thread.
             done = threading.Event()
             holder: list = [None]
 
@@ -267,7 +338,7 @@ class NavServer(Node):
                 _d.set()
 
             self._acquire_cli.call_async(req).add_done_callback(_cb)
-            done.wait(timeout=5.0)
+            done.wait(timeout=5.0)  # 5 s covers slow TC under load
 
             if holder[0] is not None and holder[0].granted:
                 return True
@@ -280,7 +351,12 @@ class NavServer(Node):
         return True  # safety valve: proceed rather than hang forever
 
     def _release_wp(self, waypoint: str) -> None:
-        """Fire-and-forget waypoint release."""
+        """
+        Asynchronously release a waypoint in the traffic controller.
+
+        Fire-and-forget: we don't need the response — the TC will unblock any
+        robot that was waiting on this waypoint as a side effect.
+        """
         if not self._release_cli.wait_for_service(timeout_sec=1.0):
             return
         req = ReleaseWaypoint.Request()
@@ -523,7 +599,12 @@ class NavServer(Node):
         """
         Absolute heading in degrees for the leg from_wp → to_wp.
 
-        Coordinate convention (matches the warehouse_map.yaml x/y layout):
+        SVG coordinates have Y increasing downward, so dy is negated before
+        calling atan2 to produce a standard screen-space heading where North
+        (up on screen) maps to 90°.  The result is passed to robot_sim purely
+        for informational logging; navigation uses distance, not heading.
+
+        Coordinate convention:
           0°  = East  (+X on the map)
           90° = North (+Y up on screen; SVG Y is inverted so we negate it)
         Counterclockwise positive.
@@ -595,6 +676,27 @@ class NavServer(Node):
     # ------------------------------------------------------------------
 
     def _execute_task(self, goal_handle):
+        """
+        Action server execute callback — navigate the robot to a destination.
+
+        Called by the task_manager via a LogisticsTask goal.  The method runs
+        in a background thread (MultiThreadedExecutor) so blocking calls here
+        do not stall other callbacks.
+
+        Hop-by-hop loop
+        ~~~~~~~~~~~~~~~
+        Rather than planning once and following the path blindly, the robot
+        replans at every hop using the current peer positions as a soft penalty.
+        This means the route adapts dynamically if another robot moves into the
+        way.  Each hop:
+          1. Replan Dijkstra with +50 m peer-position penalty.
+          2. Call _acquire_wp — blocks until the TC grants the next waypoint.
+             If a yield signal fires during the wait, _acquire_wp returns False.
+          3. On yield: _yield_retreat backs up one hop then replans from the new
+             position; if retreat fails (no free neighbour), wait 1 s and retry.
+          4. On acquire grant: send the MoveToWaypoint goal to robot_sim and wait.
+          5. Release the previous waypoint and advance robot_position.
+        """
         destination         = goal_handle.request.destination_waypoint
         carrying_box        = goal_handle.request.carrying_box
         skip_battery_check  = goal_handle.request.skip_battery_check
@@ -748,7 +850,16 @@ class NavServer(Node):
         self, waypoint: str, distance: float,
         heading_deg: float = 0.0, turn_deg: float = 0.0,
     ) -> bool:
-        """Send a single-step move goal and block until it completes."""
+        """
+        Send a single-hop MoveToWaypoint goal to robot_sim and block until done.
+
+        Uses a threading.Event + done callback pattern because the ROS 2 action
+        client API is async-only — we bridge back to synchronous here so the
+        calling execute callback can use normal sequential logic.
+
+        Returns True on success, False if the server was unavailable, rejected
+        the goal, or timed out (120 s safety valve).
+        """
         if not self._move_client.wait_for_server(timeout_sec=5.0):
             self.get_logger().error('Robot sim action server not available')
             return False
