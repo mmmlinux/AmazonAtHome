@@ -34,7 +34,7 @@ ros2 launch logistics_server logistics.launch.py travel_speed:=2.0 web_port:=900
 
 | Parameter | Default | Description |
 |---|---|---|
-| `travel_speed` | `2.0` | Robot movement speed (m/s) |
+| `travel_speed` | `4.0` | Robot movement speed (m/s) |
 | `web_port` | `8080` | Web UI port |
 | `map_file` | built-in map | Path to custom warehouse map YAML |
 | `min_battery_1` / `min_battery_2` | `50.0` | Low-battery threshold per robot (%) — triggers charge diversion when empty |

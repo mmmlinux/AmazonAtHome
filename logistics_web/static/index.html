@@ -12,6 +12,7 @@
       background: #0f1117;
       color: #e2e8f0;
       height: 100vh;
+      height: 100dvh;
       display: flex;
       flex-direction: column;
       overflow: hidden;
@@ -43,6 +44,7 @@
       display: grid;
       grid-template-columns: 1fr 300px 240px;
       overflow: hidden;
+      min-height: 0;
     }
 
     /* ── Map panel ── */
@@ -52,14 +54,51 @@
       align-items: center;
       justify-content: center;
       overflow: hidden;
+      min-height: 0;
     }
     #map-svg {
       width: 100%;
       height: 100%;
-      max-height: calc(100vh - 58px - 40px);
+      max-height: calc(100dvh - 58px - 40px);
       background: #181c27;
       border-radius: 10px;
       border: 1px solid #2d3748;
+    }
+
+    /* ── Tablet / mobile layout ── */
+    @media (max-width: 900px) {
+      body {
+        overflow-y: auto;
+        height: auto;
+        min-height: 100vh;
+        min-height: 100dvh;
+      }
+      main {
+        grid-template-columns: 1fr;
+        overflow: visible;
+        flex: none;
+      }
+      #map-panel {
+        padding: 12px;
+        height: auto;
+        aspect-ratio: 4 / 3;
+        max-height: 70vw;
+        min-height: 260px;
+      }
+      #map-svg {
+        max-height: none;
+        height: 100%;
+      }
+      #controls {
+        border-left: none;
+        border-top: 1px solid #2d3748;
+        overflow-y: visible;
+      }
+      #test-panel {
+        border-left: none;
+        border-top: 1px solid #2d3748;
+        overflow-y: visible;
+      }
     }
 
     @keyframes pulse {

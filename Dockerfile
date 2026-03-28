@@ -22,6 +22,6 @@ EXPOSE 8080
 # Override at runtime:
 #   docker run ... min_battery_1:=40.0 travel_speed:=3.0
 ENTRYPOINT ["/bin/bash", "-c", \
-  ". /opt/ros/humble/setup.bash && . /ws/install/setup.bash && ros2 launch logistics_server logistics.launch.py \"$@\"", \
+  ". /opt/ros/humble/setup.bash && . /ws/install/setup.bash && exec ros2 launch logistics_server logistics.launch.py \"$@\"", \
   "--"]
 CMD []

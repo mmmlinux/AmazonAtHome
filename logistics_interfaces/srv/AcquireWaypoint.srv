@@ -1,0 +1,7 @@
+string robot_id
+string waypoint
+int32  priority
+---
+bool   granted
+string holder_id
+int32  holder_priority

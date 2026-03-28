@@ -19,7 +19,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             'travel_speed',
-            default_value='2.0',
+            default_value='4.0',
             description='Simulated robot travel speed in m/s',
         ),
         DeclareLaunchArgument(
@@ -58,8 +58,8 @@ def generate_launch_description():
                 'travel_speed':             LaunchConfiguration('travel_speed'),
                 'start_waypoint':           'charge_2',
                 'initial_battery':          100.0,
-                'discharge_rate_per_meter': 0.5,
-                'charge_rate_per_second':   10.0,
+                'discharge_rate_per_meter': 0.25,
+                'charge_rate_per_second':   5.0,
                 'charging_waypoints':       'charge_1,charge_2,charge_3,charge_4',
             }],
             output='screen',
@@ -72,6 +72,7 @@ def generate_launch_description():
             parameters=[{
                 'map_file':         LaunchConfiguration('map_file'),
                 'robot_start':      'charge_2',
+                'peers':            'robot_2',
                 'min_battery':      LaunchConfiguration('min_battery_1'),
                 'critical_battery': LaunchConfiguration('critical_battery_1'),
             }],
@@ -88,8 +89,8 @@ def generate_launch_description():
                 'travel_speed':             LaunchConfiguration('travel_speed'),
                 'start_waypoint':           'charge_3',
                 'initial_battery':          100.0,
-                'discharge_rate_per_meter': 0.5,
-                'charge_rate_per_second':   10.0,
+                'discharge_rate_per_meter': 0.25,
+                'charge_rate_per_second':   5.0,
                 'charging_waypoints':       'charge_1,charge_2,charge_3,charge_4',
             }],
             output='screen',
@@ -102,6 +103,7 @@ def generate_launch_description():
             parameters=[{
                 'map_file':         LaunchConfiguration('map_file'),
                 'robot_start':      'charge_3',
+                'peers':            'robot_1',
                 'min_battery':      LaunchConfiguration('min_battery_2'),
                 'critical_battery': LaunchConfiguration('critical_battery_2'),
             }],
@@ -133,6 +135,14 @@ def generate_launch_description():
                 'load_waypoint':   'dock_1',
                 'unload_waypoint': 'dock_1',
             }],
+            output='screen',
+        ),
+
+        # ── Traffic controller (waypoint/aisle locking for collision avoidance) ─
+        Node(
+            package='logistics_server',
+            executable='traffic_controller',
+            name='traffic_controller',
             output='screen',
         ),
 

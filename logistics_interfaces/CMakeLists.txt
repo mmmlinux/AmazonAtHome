@@ -12,6 +12,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/WarehouseState.msg"
   "srv/SubmitTask.srv"
   "srv/SetSlotOccupancy.srv"
+  "srv/AcquireWaypoint.srv"
+  "srv/ReleaseWaypoint.srv"
   "action/LogisticsTask.action"
   "action/MoveToWaypoint.action"
 )

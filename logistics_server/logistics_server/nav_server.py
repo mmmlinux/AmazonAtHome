@@ -10,8 +10,18 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 import yaml
 
+from std_msgs.msg import Empty
+
 from logistics_interfaces.action import LogisticsTask, MoveToWaypoint
 from logistics_interfaces.msg import RobotStatus, WarehouseState
+from logistics_interfaces.srv import AcquireWaypoint, ReleaseWaypoint
+
+# Collision-avoidance movement priorities (higher = gets waypoint first).
+# Separate from the display priorities on TaskStatus.
+_PRIO_IDLE     = 0
+_PRIO_CHARGING = 1   # diverting to charger (yields to working robots)
+_PRIO_EMPTY    = 2   # travelling without box
+_PRIO_LOADED   = 3   # travelling with box — don't block deliveries
 
 
 def _parse_map(data: dict) -> tuple[dict, dict]:
@@ -77,6 +87,8 @@ class NavServer(Node):
 
         self.declare_parameter('map_file', '')
         self.declare_parameter('robot_start', 'charge_1')
+        self.declare_parameter('peers', '')           # comma-separated peer robot IDs
+        self._robot_id = self.get_namespace().lstrip('/')
         self.declare_parameter('min_battery',      50.0)   # empty-robot charge threshold
         self.declare_parameter('critical_battery', 25.0)   # loaded-robot emergency-drop threshold
 
@@ -93,12 +105,21 @@ class NavServer(Node):
         # the relative turn angle.  None = unknown (first move of a session).
         self.robot_heading_deg: float | None = None
 
+        # Current collision-avoidance movement priority (set per task).
+        self._current_priority: int = _PRIO_IDLE
+
+        # Set when the traffic controller signals this robot to yield.
+        self._yield_event = threading.Event()
+
         # Battery state — updated via robot_status subscription
         self._battery_level: float = 100.0
         self._battery_lock = threading.Lock()
 
         # Slot occupancy — updated via warehouse_state topic
         self._slot_occupied: dict[str, bool] = {}
+
+        # Peer robot positions: peer_id → current_waypoint
+        self._peer_positions: dict[str, str] = {}
 
         # Reentrant groups so the action client callbacks can fire while the
         # action server execute callback is blocking on threading.Event.
@@ -109,12 +130,34 @@ class NavServer(Node):
             callback_group=cb_group,
         )
         self.create_subscription(
+            Empty, 'yield_request', self._on_yield, 10, callback_group=cb_group,
+        )
+        self.create_subscription(
             WarehouseState, '/warehouse_state', self._on_warehouse_state, 10,
             callback_group=cb_group,
         )
 
+        # Subscribe to each peer's robot_status to track their positions.
+        peers_param = self.get_parameter('peers').get_parameter_value().string_value
+        for peer in (p.strip() for p in peers_param.split(',') if p.strip()):
+            self.create_subscription(
+                RobotStatus,
+                f'/{peer}/robot_status',
+                lambda msg, pid=peer: self._on_peer_status(pid, msg),
+                10,
+                callback_group=cb_group,
+            )
+
         self._move_client = ActionClient(
             self, MoveToWaypoint, 'move_to_waypoint', callback_group=cb_group
+        )
+
+        # Traffic controller clients for collision avoidance.
+        self._acquire_cli = self.create_client(
+            AcquireWaypoint, '/traffic/acquire', callback_group=cb_group,
+        )
+        self._release_cli = self.create_client(
+            ReleaseWaypoint, '/traffic/release', callback_group=cb_group,
         )
 
         self._task_server = ActionServer(
@@ -129,6 +172,22 @@ class NavServer(Node):
             f'Nav server ready. {len(self.graph)} waypoints loaded. '
             f'Robot starting at: {self.robot_position}'
         )
+
+        # Claim starting position after the executor has started spinning so
+        # the async service call can complete.  (Calling _acquire_wp directly
+        # in __init__ hangs because call_async callbacks never fire until spin()
+        # is running, causing repeated 5-second timeouts and a 30s delay.)
+        self._startup_timer = self.create_timer(0.5, self._claim_start_position)
+
+    # ------------------------------------------------------------------
+    # Startup
+    # ------------------------------------------------------------------
+
+    def _claim_start_position(self) -> None:
+        """One-shot timer: claim the starting waypoint once the executor is spinning."""
+        self._startup_timer.cancel()
+        self._acquire_wp(self.robot_position, _PRIO_IDLE)
+        self.get_logger().info(f'[{self._robot_id}] Starting position {self.robot_position} claimed')
 
     # ------------------------------------------------------------------
     # Map loading
@@ -157,29 +216,176 @@ class NavServer(Node):
         with self._battery_lock:
             self._battery_level = float(msg.battery_level)
 
+    def _on_peer_status(self, peer_id: str, msg: RobotStatus) -> None:
+        self._peer_positions[peer_id] = msg.current_waypoint
+
     def _on_warehouse_state(self, msg: WarehouseState) -> None:
         self._slot_occupied = {s.waypoint_id: s.occupied for s in msg.slots}
+
+    # ------------------------------------------------------------------
+    # Traffic control helpers
+    # ------------------------------------------------------------------
+
+    def _on_yield(self, _msg: Empty) -> None:
+        """Traffic controller signals this robot to yield (deadlock detected)."""
+        self.get_logger().info(f'[{self._robot_id}] Yield signal received — will retreat')
+        self._yield_event.set()
+
+    def _acquire_wp(self, waypoint: str, priority: int, timeout: float = 30.0) -> bool:
+        """
+        Block until this robot acquires the waypoint lock, or timeout expires.
+
+        Returns True  — granted (or TC unavailable, proceed without locking).
+        Returns False — yield signal received; caller should call _yield_retreat()
+                        then replan.
+
+        Higher-priority robots use a shorter retry interval so they naturally
+        get ahead of lower-priority ones when both are waiting on the same spot.
+        """
+        if not self._acquire_cli.wait_for_service(timeout_sec=2.0):
+            return True  # TC not running — no-op
+
+        deadline = time.time() + timeout
+        retry_interval = max(0.05, 0.3 - priority * 0.05)
+
+        while time.time() < deadline:
+            # Check for yield signal before each attempt.
+            if self._yield_event.is_set():
+                self._yield_event.clear()
+                return False
+
+            req = AcquireWaypoint.Request()
+            req.robot_id = self._robot_id
+            req.waypoint = waypoint
+            req.priority = priority
+
+            done = threading.Event()
+            holder: list = [None]
+
+            def _cb(fut, _h=holder, _d=done):
+                _h[0] = fut.result()
+                _d.set()
+
+            self._acquire_cli.call_async(req).add_done_callback(_cb)
+            done.wait(timeout=5.0)
+
+            if holder[0] is not None and holder[0].granted:
+                return True
+
+            time.sleep(retry_interval)
+
+        self.get_logger().warning(
+            f'[{self._robot_id}] Timeout acquiring {waypoint} — proceeding anyway'
+        )
+        return True  # safety valve: proceed rather than hang forever
+
+    def _release_wp(self, waypoint: str) -> None:
+        """Fire-and-forget waypoint release."""
+        if not self._release_cli.wait_for_service(timeout_sec=1.0):
+            return
+        req = ReleaseWaypoint.Request()
+        req.robot_id = self._robot_id
+        req.waypoint = waypoint
+        self._release_cli.call_async(req)
+
+    def _yield_retreat(self, blocked_wp: str, priority: int) -> bool:
+        """
+        Back up one hop to break a deadlock.
+
+        Picks an adjacent waypoint that is not the one we're blocked on,
+        preferring junctions and chargers.  Acquires the retreat waypoint,
+        moves there, and releases the current position.
+
+        Returns True if the retreat succeeded (robot_position is updated).
+        Returns False if no retreat is possible (caller should wait and retry).
+        """
+        candidates = [
+            wp for wp in self.graph.get(self.robot_position, {}).keys()
+            if wp != blocked_wp
+        ]
+        if not candidates:
+            return False
+
+        junction_types = frozenset({'intersection', 'charging'})
+        junctions = [wp for wp in candidates
+                     if self.waypoint_info.get(wp, {}).get('type') in junction_types]
+        retreat_wp = junctions[0] if junctions else candidates[0]
+
+        self.get_logger().info(
+            f'[{self._robot_id}] Deadlock yield: '
+            f'{self.robot_position} → {retreat_wp}'
+        )
+
+        if not self._acquire_cli.wait_for_service(timeout_sec=1.0):
+            return False
+
+        req = AcquireWaypoint.Request()
+        req.robot_id = self._robot_id
+        req.waypoint = retreat_wp
+        req.priority = priority
+
+        done = threading.Event()
+        holder: list = [None]
+
+        def _cb(fut, _h=holder, _d=done):
+            _h[0] = fut.result()
+            _d.set()
+
+        self._acquire_cli.call_async(req).add_done_callback(_cb)
+        done.wait(timeout=3.0)
+
+        if not holder[0] or not holder[0].granted:
+            return False
+
+        edge_dist = self.graph[self.robot_position][retreat_wp]
+        heading   = self._heading(self.robot_position, retreat_wp)
+        turn      = (
+            self._turn(self.robot_heading_deg, heading)
+            if self.robot_heading_deg is not None else 0.0
+        )
+        old_pos = self.robot_position
+        if not self._send_move_command(retreat_wp, edge_dist, heading, turn):
+            return False
+
+        self._release_wp(old_pos)
+        self.robot_position = retreat_wp
+        self.robot_heading_deg = heading
+        return True
 
     # ------------------------------------------------------------------
     # Battery lockout
     # ------------------------------------------------------------------
 
     def _find_nearest_charger(self) -> str | None:
-        """Return the nearest charging waypoint reachable from current position."""
-        chargers = [
+        """
+        Return the nearest free charging waypoint reachable from current position.
+
+        Chargers currently occupied by peer robots are skipped.  If every charger
+        is occupied (unlikely but possible), falls back to the nearest one anyway
+        so the robot never gets stranded with a dead battery.
+        """
+        occupied_by_peers = set(self._peer_positions.values())
+
+        all_chargers = [
             wp for wp, info in self.waypoint_info.items()
             if info.get('type') == 'charging'
         ]
-        if not chargers:
+        if not all_chargers:
             return None
+
+        # Prefer free chargers; fall back to any charger only if all are taken.
+        free_chargers = [wp for wp in all_chargers if wp not in occupied_by_peers]
+        candidates    = free_chargers if free_chargers else all_chargers
+
+        if self.robot_position in candidates:
+            return self.robot_position
+
         best_wp, best_dist = None, float('inf')
-        for wp in chargers:
-            if wp == self.robot_position:
-                return wp
+        for wp in candidates:
             _, d = self._dijkstra(self.robot_position, wp)
             if d < best_dist:
                 best_dist = d
-                best_wp = wp
+                best_wp   = wp
         return best_wp
 
     def _check_low_battery_carrying(self, goal_handle, result, path_taken: list) -> bool:
@@ -279,9 +485,16 @@ class NavServer(Node):
         goal_handle.abort()
         return True
 
-    def _send_move_to(self, destination: str) -> bool:
+    def _send_move_to(self, destination: str, priority: int = _PRIO_CHARGING) -> bool:
         """Navigate to destination using full Dijkstra path, updating robot_position."""
-        path, _ = self._dijkstra(self.robot_position, destination)
+        peer_wps: set[str] = {
+            wp for wp in self._peer_positions.values()
+            if wp and wp != self.robot_position
+        }
+        path, _ = self._dijkstra(
+            self.robot_position, destination,
+            penalized_wps=peer_wps or None,
+        )
         if path is None:
             return False
         for i in range(1, len(path)):
@@ -294,8 +507,10 @@ class NavServer(Node):
                 if self.robot_heading_deg is not None
                 else 0.0
             )
+            self._acquire_wp(next_wp, priority)
             if not self._send_move_command(next_wp, edge_dist, heading, turn):
                 return False
+            self._release_wp(prev_wp)
             self.robot_position = next_wp
             self.robot_heading_deg = heading
         return True
@@ -331,8 +546,20 @@ class NavServer(Node):
     # Pathfinding
     # ------------------------------------------------------------------
 
-    def _dijkstra(self, start: str, end: str) -> tuple[list[str] | None, float]:
-        """Return (path, total_distance) or (None, inf) if unreachable."""
+    def _dijkstra(
+        self,
+        start: str,
+        end: str,
+        penalized_wps: set[str] | None = None,
+        penalty: float = 50.0,
+    ) -> tuple[list[str] | None, float]:
+        """
+        Return (path, total_distance) or (None, inf) if unreachable.
+
+        penalized_wps  — waypoints to add `penalty` metres of cost to when
+                         entering.  Used to route around peer-robot positions
+                         without hard-blocking those waypoints.
+        """
         dist = {node: float('inf') for node in self.graph}
         prev: dict[str, str | None] = {node: None for node in self.graph}
         dist[start] = 0.0
@@ -345,7 +572,8 @@ class NavServer(Node):
             if u == end:
                 break
             for v, w in self.graph[u].items():
-                alt = dist[u] + w
+                edge_cost = w + (penalty if penalized_wps and v in penalized_wps else 0.0)
+                alt = dist[u] + edge_cost
                 if alt < dist[v]:
                     dist[v] = alt
                     prev[v] = u
@@ -370,9 +598,12 @@ class NavServer(Node):
         destination         = goal_handle.request.destination_waypoint
         carrying_box        = goal_handle.request.carrying_box
         skip_battery_check  = goal_handle.request.skip_battery_check
+        priority = _PRIO_LOADED if carrying_box else _PRIO_EMPTY
+        self._current_priority = priority
         self.get_logger().info(
             f'New task: send robot to [{destination}]  '
-            f'carrying_box={carrying_box}  skip_battery_check={skip_battery_check}'
+            f'carrying_box={carrying_box}  skip_battery_check={skip_battery_check}  '
+            f'priority={priority}'
         )
 
         result = LogisticsTask.Result()
@@ -424,8 +655,10 @@ class NavServer(Node):
         goal_handle.publish_feedback(feedback)
 
         path_taken = [self.robot_position]
+        step_count = 0
 
-        for i in range(1, len(path)):
+        # Re-plan at every hop so the route adapts to where peers currently are.
+        while self.robot_position != destination:
             if goal_handle.is_cancel_requested:
                 result.success = False
                 result.path_taken = path_taken
@@ -433,22 +666,43 @@ class NavServer(Node):
                 goal_handle.canceled()
                 return result
 
-            prev_wp = path[i - 1]
-            next_wp = path[i]
-            edge_dist = self.graph[prev_wp][next_wp]
+            # Build penalty set from known peer positions (exclude our own spot).
+            peer_wps: set[str] = {
+                wp for wp in self._peer_positions.values()
+                if wp and wp != self.robot_position
+            }
 
-            heading = self._heading(prev_wp, next_wp)
-            turn = (
+            path, _ = self._dijkstra(
+                self.robot_position, destination,
+                penalized_wps=peer_wps or None,
+            )
+            if path is None or len(path) < 2:
+                result.success = False
+                result.path_taken = path_taken
+                result.message = f'No path from {self.robot_position} to {destination}'
+                goal_handle.abort()
+                return result
+
+            next_wp   = path[1]
+            edge_dist = self.graph[self.robot_position][next_wp]
+            heading   = self._heading(self.robot_position, next_wp)
+            turn      = (
                 self._turn(self.robot_heading_deg, heading)
-                if self.robot_heading_deg is not None
-                else 0.0
+                if self.robot_heading_deg is not None else 0.0
             )
 
             self.get_logger().info(
-                f'Step {i}/{len(path) - 1}: [{next_wp}]  '
-                f'dist={edge_dist:.1f} m  '
-                f'heading={heading:.1f}°  turn={turn:+.1f}°'
+                f'Step {step_count + 1} → [{next_wp}]  '
+                f'dist={edge_dist:.1f} m  remaining={len(path) - 1} hops'
+                + (f'  avoiding={peer_wps}' if peer_wps else '')
             )
+
+            # Acquire next waypoint.  Returns False if a yield signal was received.
+            if not self._acquire_wp(next_wp, priority):
+                if not self._yield_retreat(next_wp, priority):
+                    time.sleep(1.0)  # no retreat possible — wait and replan
+                # Either way: position may have changed, replan next iteration.
+                continue
 
             if not self._send_move_command(next_wp, edge_dist, heading, turn):
                 result.success = False
@@ -457,9 +711,12 @@ class NavServer(Node):
                 goal_handle.abort()
                 return result
 
-            self.robot_position = next_wp
+            prev_wp = self.robot_position
+            self._release_wp(prev_wp)
+            self.robot_position   = next_wp
             self.robot_heading_deg = heading
             path_taken.append(next_wp)
+            step_count += 1
 
             # Mid-nav battery check after each hop (skipped for emergency-drop nav)
             if not skip_battery_check:
@@ -470,9 +727,11 @@ class NavServer(Node):
                     if self._check_low_battery_carrying(goal_handle, result, path_taken):
                         return result
 
+            feedback.planned_path     = path
             feedback.current_waypoint = self.robot_position
-            feedback.steps_completed = i
-            feedback.detail = f'Step {i}/{feedback.total_steps} — at {self.robot_position}'
+            feedback.steps_completed  = step_count
+            feedback.total_steps      = step_count + len(path) - 2
+            feedback.detail = f'Step {step_count} — at {self.robot_position}'
             goal_handle.publish_feedback(feedback)
 
         result.success = True

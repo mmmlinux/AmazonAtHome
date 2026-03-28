@@ -24,6 +24,7 @@ setup(
         'console_scripts': [
             'nav_server = logistics_server.nav_server:main',
             'task_client = logistics_server.task_client:main',
+            'traffic_controller = logistics_server.traffic_controller:main',
         ],
     },
 )
