@@ -6,8 +6,8 @@
 #
 # Layout (top = north):
 #
-#  charge_1─charge_2 ════════════════════════ charge_3─charge_4
-#                │      double-wide corridor        │
+#  charge_1  charge_2   corridor_NW ══════════ corridor_NE   charge_3  charge_4
+#    (spur)   (spur) ╱      │      double-wide corridor   │      ╲ (spur)  (spur)
 #  ·─·─·─·─·  aisle positions A1-A5 ─ spine_W1 ─ spine_E1 ─ aisle positions F1-F5 ─·─·─·─·─·
 #      each position has 2 storage spots branching N and S (e.g. shelf_A11, shelf_A12)
 #  ·─·─·─·─·  B1-B5 ─ spine_W2 ─ spine_E2 ─ G1-G5 ─·─·─·─·─·
@@ -24,11 +24,11 @@
 #   e.g. shelf_A11 = aisle A, position 1, north side
 
 display:
-  origin_x: 380   # SVG x of charge_2 (inner-west charger)
-  origin_y: 50    # SVG y of charge_2
+  origin_x: 380   # SVG x of corridor_NW
+  origin_y: 50    # SVG y of corridor_NW
   scale: 20       # pixels per meter
 
-origin: charge_2
+origin: corridor_NW
 
 waypoints:
 
@@ -48,6 +48,15 @@ waypoints:
   charge_4:
     type: charging
     description: "Charging station (far east)"
+
+  # ── North corridor junctions (chargers are dead-end spurs off these) ────────
+  corridor_NW:
+    type: intersection
+    description: "North corridor junction (west) — connects to charge_1, charge_2, and spine_W"
+
+  corridor_NE:
+    type: intersection
+    description: "North corridor junction (east) — connects to charge_3, charge_4, and spine_E"
 
   # ── West spine corridor junctions ────────────────────────────────────────────
   spine_W1:
@@ -748,13 +757,17 @@ waypoints:
 # All edges are bidirectional for navigation.
 edges:
 
-  # ── Charger row (east-west, north wall) ──────────────────────────────────────
-  - { from: charge_1,  to: charge_2,   bearing:  90, distance: 4.0 }
-  - { from: charge_2,  to: charge_3,   bearing:  90, distance: 4.0 }
-  - { from: charge_3,  to: charge_4,   bearing:  90, distance: 4.0 }
+  # ── North corridor (east-west) — robots traverse this, not the charger bays ──
+  - { from: corridor_NW, to: corridor_NE, bearing:  90, distance: 4.0 }
 
-  # ── West spine (south from charge_2) ─────────────────────────────────────────
-  - { from: charge_2,  to: spine_W1,   bearing: 180, distance: 8.0 }
+  # ── Charger spurs — dead ends so robots never route through a charger bay ────
+  - { from: corridor_NW, to: charge_1,   bearing: 270, distance: 2.0 }
+  - { from: corridor_NW, to: charge_2,   bearing:   0, distance: 2.0 }
+  - { from: corridor_NE, to: charge_3,   bearing:   0, distance: 2.0 }
+  - { from: corridor_NE, to: charge_4,   bearing:  90, distance: 2.0 }
+
+  # ── West spine (south from corridor_NW) ──────────────────────────────────────
+  - { from: corridor_NW, to: spine_W1,   bearing: 180, distance: 8.0 }
   - { from: spine_W1,  to: spine_W2,   bearing: 180, distance: 8.0 }
   - { from: spine_W2,  to: spine_W3,   bearing: 180, distance: 8.0 }
   - { from: spine_W3,  to: spine_W4,   bearing: 180, distance: 8.0 }
@@ -762,8 +775,8 @@ edges:
   - { from: spine_W5,  to: spine_Wqa,  bearing: 180, distance: 6.0 }
   - { from: spine_Wqa, to: dock_1,     bearing: 180, distance: 6.0 }
 
-  # ── East spine (south from charge_3) ─────────────────────────────────────────
-  - { from: charge_3,  to: spine_E1,   bearing: 180, distance: 8.0 }
+  # ── East spine (south from corridor_NE) ──────────────────────────────────────
+  - { from: corridor_NE, to: spine_E1,   bearing: 180, distance: 8.0 }
   - { from: spine_E1,  to: spine_E2,   bearing: 180, distance: 8.0 }
   - { from: spine_E2,  to: spine_E3,   bearing: 180, distance: 8.0 }
   - { from: spine_E3,  to: spine_E4,   bearing: 180, distance: 8.0 }
@@ -778,7 +791,8 @@ edges:
   - { from: spine_W4,  to: spine_E4,   bearing:  90, distance: 4.0 }
   - { from: spine_W5,  to: spine_E5,   bearing:  90, distance: 4.0 }
   - { from: spine_Wqa, to: spine_Eqa,  bearing:  90, distance: 4.0 }
-  - { from: dock_1,    to: dock_2,     bearing:  90, distance: 4.0 }
+  # dock_1 and dock_2 are intentionally not connected to each other —
+  # each is a dead end off its own spine so robots never route through a dock.
 
   # ── Aisle A (west, from spine_W1) ────────────────────────────────────────────
   - { from: spine_W1,  to: aisle_A1,   bearing: 270, distance: 3.0 }

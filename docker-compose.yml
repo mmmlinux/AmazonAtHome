@@ -5,5 +5,20 @@ services:
       - "8080:8080"
     restart: unless-stopped
     stop_grace_period: 15s
+    volumes:
+      - ./logs:/logs
     # Pass launch arguments as command, e.g.:
     #   command: ["travel_speed:=3.0", "min_battery_1:=40.0"]
+    command: ["map_file:=/ws/install/logistics_server/share/logistics_server/config/opensauce_field_map.yaml", "travel_speed:=0.05"]
+
+  git-daemon:
+    build: ./git-daemon
+    ports:
+      - "9418:9418"
+    restart: unless-stopped
+    volumes:
+      - ../PickerRobot/Hector:/source:ro
+      - hector-repo:/repos
+
+volumes:
+  hector-repo:

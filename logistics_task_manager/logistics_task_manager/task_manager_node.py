@@ -48,7 +48,7 @@ import yaml
 
 from logistics_interfaces.action import LogisticsTask
 from logistics_interfaces.msg import RobotStatus, TaskStatus, WarehouseState
-from logistics_interfaces.srv import SetSlotOccupancy, SubmitTask
+from logistics_interfaces.srv import ChargerControl, SetSlotOccupancy, SubmitTask
 
 
 # Battery must be at or above this level for a robot to accept a new task
@@ -121,6 +121,11 @@ class RobotAgent:
         self.home_charger = home_charger
         self.min_battery  = min_battery
         self._get_queue_snapshot = get_queue_snapshot or (lambda: [])
+        # TODO: is_busy and is_returning are read by the dispatcher thread and
+        # written by the task-execution thread without a lock, creating a TOCTOU
+        # race (dispatcher checks not r.is_busy, then sets robot.is_busy = True
+        # outside any critical section).  Protect with self._lock or use an
+        # atomic compare-and-swap pattern.
         self.is_busy     = False
         self.is_returning = False
 
@@ -228,6 +233,12 @@ class TaskManagerNode(Node):
             self._docks = list({self._load_wp, self._unload_wp})
 
         self._task_queue: _TaskDeque = _TaskDeque()
+        # TODO: Protect _slot_occupied with a threading.Lock. It is written by
+        # _on_warehouse_state (ROS executor thread) and read by _pick_dock
+        # (daemon task thread) concurrently.
+        # TODO: Add task persistence — on startup, reload the queue from a
+        # file/database so pending tasks survive a WarehouseManager crash or
+        # restart.  Use a simple JSON or SQLite store written atomically.
         self._slot_occupied: dict[str, bool] = {}
 
         cb = ReentrantCallbackGroup()
@@ -254,6 +265,10 @@ class TaskManagerNode(Node):
             SetSlotOccupancy, 'set_slot_occupancy', callback_group=cb,
         )
 
+        self._charger_ctrl_cli = self.create_client(
+            ChargerControl, '/charger/control', callback_group=cb,
+        )
+
         self.create_subscription(
             WarehouseState, 'warehouse_state', self._on_warehouse_state, 10,
             callback_group=cb,
@@ -275,6 +290,10 @@ class TaskManagerNode(Node):
     # ── Map helpers ───────────────────────────────────────────────────────────
 
     def _load_map(self, map_file: str) -> None:
+        # TODO: Dijkstra and map-loading logic is duplicated across nav_server,
+        # task_manager, and web_node.  Extract to a shared
+        # logistics_server.map_utils module (load_map, dijkstra_dist,
+        # dijkstra_path, compute_svg_positions) and import it everywhere.
         with open(map_file) as f:
             data = yaml.safe_load(f)
         self._waypoint_info = {
@@ -369,6 +388,10 @@ class TaskManagerNode(Node):
 
     def _on_submit_task(self, req: SubmitTask.Request,
                         resp: SubmitTask.Response) -> SubmitTask.Response:
+        # TODO: Add task cancellation service (cancel_task by task_id) so
+        # operators can remove a queued task without restarting the system.
+        # TODO: Add task priority field to SubmitTask.srv so urgent tasks can
+        # jump the queue (e.g. express delivery bypasses normal FIFO order).
         self._task_queue.put({'type': req.task_type, 'slot': req.slot})
         qs = self._task_queue.qsize()
         for agent in self._robots:
@@ -449,13 +472,15 @@ class TaskManagerNode(Node):
         _, diverted = self._nav_to(robot, charger, carrying_box=False)
         if diverted:
             # nav_server already detected low battery, navigated to nearest charger,
-            # and charged to 80% before aborting — nothing more to do here.
+            # and engaged/disengaged the charger before aborting — nothing more to do.
             return
+        self._charger_control(robot, charger, engage=True)
         while robot.battery < 80.0:
             robot.publish(queue_size=self._qs(), task_status='idle', task_type='',
                           task_detail=f'Charging: {robot.battery:.0f}% / 80%',
                           movement_priority=TaskStatus.PRIORITY_IDLE)
             time.sleep(0.5)
+        self._charger_control(robot, charger, engage=False)
 
     def _emergency_drop(self, robot: RobotAgent) -> None:
         """
@@ -562,6 +587,59 @@ class TaskManagerNode(Node):
         req.occupied    = occupied
         self._occupancy_client.call_async(req)
 
+    def _charger_control(
+        self,
+        robot: RobotAgent,
+        waypoint_id: str,
+        engage: bool,
+        timeout: float = 20.0,
+    ) -> bool:
+        """
+        Engage or disengage the charger at waypoint_id.
+
+        Blocks until the ChargerManager confirms the action (or times out).
+        Returns True on success.  If ChargerManager is not running, logs a
+        debug message and returns False — the system continues without locking.
+        """
+        if not self._charger_ctrl_cli.service_is_ready():
+            self.get_logger().debug(
+                '/charger/control not available — skipping charger handshake'
+            )
+            return False
+
+        req = ChargerControl.Request()
+        req.waypoint_id = waypoint_id
+        req.robot_id    = robot.robot_id
+        req.engage      = engage
+
+        holder: list = [None]
+        done = threading.Event()
+
+        def _cb(fut, _h=holder, _d=done):
+            _h[0] = fut.result()
+            _d.set()
+
+        self._charger_ctrl_cli.call_async(req).add_done_callback(_cb)
+        done.wait(timeout=timeout)
+
+        action = 'engage' if engage else 'disengage'
+        result = holder[0]
+        if result is None:
+            self.get_logger().warning(
+                f'[{robot.robot_id}] Charger {action} [{waypoint_id}] timed out'
+            )
+            return False
+        if result.success:
+            self.get_logger().info(
+                f'[{robot.robot_id}] Charger {action}d at [{waypoint_id}]'
+            )
+        else:
+            self.get_logger().warning(
+                f'[{robot.robot_id}] Charger {action} failed at [{waypoint_id}]: '
+                f'{result.message}'
+            )
+        return result.success
+
     def _execute_task(self, robot: RobotAgent, task: dict) -> None:
         try:
             if task['type'] == 'pickup':
@@ -575,6 +653,11 @@ class TaskManagerNode(Node):
             robot.publish(queue_size=self._qs(), task_status='error',
                           task_detail=str(exc),
                           movement_priority=TaskStatus.PRIORITY_IDLE)
+            # TODO: Publish error events to a dedicated /task_events topic (or
+            # webhook/email) so operators are notified without watching logs.
+            # TODO: Write task completion records (robot_id, task_type, slot,
+            # start_time, end_time, success, error) to a structured audit log
+            # (CSV or SQLite) for throughput analysis and incident review.
 
         robot.is_busy = False
 
@@ -615,6 +698,9 @@ class TaskManagerNode(Node):
                 self._nav_to(robot, charger, carrying_box=False)
 
         if completed:
+            # Engage the charger — robot is now locked until disengaged.
+            self._charger_control(robot, charger, engage=True)
+
             # Hold at charger until battery reaches 80%.
             # Exits early if the dispatcher signals a new task AND battery >= MIN_BATTERY.
             while robot.battery < 80.0:
@@ -624,6 +710,9 @@ class TaskManagerNode(Node):
                               task_detail=f'Charging: {robot.battery:.0f}% / 80%',
                               movement_priority=TaskStatus.PRIORITY_IDLE)
                 time.sleep(0.5)
+
+            # Disengage before the robot moves away (or before dispatcher takes over).
+            self._charger_control(robot, charger, engage=False)
 
             robot.publish(queue_size=0, task_status='idle', task_type='',
                           task_detail='Idle at charging station',
@@ -800,6 +889,10 @@ class TaskManagerNode(Node):
             goal, feedback_callback=on_feedback
         ).add_done_callback(on_goal)
 
+        # TODO: Make this timeout configurable via a ROS parameter.  300 s is
+        # long enough that a stuck robot silently blocks the dispatcher for
+        # 5 minutes.  Consider a shorter default (60–120 s) and surface the
+        # timeout as an 'error' task status so operators are alerted.
         done.wait(timeout=300.0)
         return result_holder[0], result_holder[1]
 

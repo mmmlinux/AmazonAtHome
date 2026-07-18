@@ -1,0 +1,52 @@
+# Fleet configuration — one entry per robot.
+#
+# robot_type: simulated   launches robot_sim alongside nav_server
+#             hector      launches hector_driver (WebSocket server) alongside
+#                         nav_server; Hector connects to it on boot via:
+#                           python hector_agent.py --ws ws://<WM_IP>:<ws_port>
+#             real        skips robot_sim; you supply your own driver that
+#                         implements the move_to_waypoint action and publishes
+#                         robot_status (see logistics_robot_sim/real_robot_driver.py)
+#
+# hector-only fields:
+#   ws_port   WebSocket port this robot's hector_driver listens on (each robot
+#             needs a unique port if running multiple Hector robots)
+#
+# Example hector entry:
+#   - id:                hector_1
+#     robot_type:        hector
+#     start_waypoint:    node_4
+#     home_charger:      node_4
+#     charging_waypoints: node_4
+#     min_battery:       50.0
+#     critical_battery:  25.0
+#     ws_port:           8765
+#
+# Simulation-only fields (discharge_rate_per_meter, charge_rate_per_second,
+# charging_waypoints) are ignored when robot_type is 'real' or 'hector'.
+#
+# This fleet is sized for the opensauce_field_map.yaml course, which has two
+# charging stations (node_4, node_8) and one dock (node_1). Distances on that
+# course are centimeter-scale, so discharge_rate_per_meter barely matters in
+# practice — low-battery diversion is unlikely to trigger during normal runs.
+
+robots:
+  - id:                       robot_1
+    robot_type:               simulated
+    start_waypoint:           node_4
+    home_charger:             node_4
+    min_battery:              50.0    # % — empty robot diverts to charge below this
+    critical_battery:         25.0    # % — loaded robot emergency-drops below this
+    discharge_rate_per_meter: 0.25    # % per metre (sim only)
+    charge_rate_per_second:   5.0     # % per second (sim only)
+    charging_waypoints:       node_4,node_8
+
+  - id:                       robot_2
+    robot_type:               simulated
+    start_waypoint:           node_8
+    home_charger:             node_8
+    min_battery:              50.0
+    critical_battery:         25.0
+    discharge_rate_per_meter: 0.25
+    charge_rate_per_second:   5.0
+    charging_waypoints:       node_4,node_8

@@ -1,0 +1,185 @@
+# Warehouse map — polar edge format
+#
+# bearing: compass degrees  (0 = North/up, 90 = East/right,
+#                            180 = South/down, 270 = West/left)
+# distance: meters
+#
+# Source: OpensauceWarehouse Field.png (hand-drawn course; node numbers are
+# black, segment lengths were drawn in centimeters and converted to meters
+# here). Node IDs are renumbered 1-27 contiguously (the original drawing
+# skipped "15").
+#
+# Topology: one main loop (node_5 - node_6 - node_12 - node_11 - node_10 - node_5)
+# with tree-shaped spurs hanging off it. Dock: node_1. Chargers: node_4, node_8.
+# Everything else that's a dead end is a storage spot; all other nodes are
+# plain corridor intersections.
+
+display:
+  origin_x: 500
+  origin_y: 500
+  scale: 500      # pixels per meter — high because the smallest edge (0.075m)
+                  # must still clear the web UI's fixed ~8-16px node radii
+
+origin: node_1
+
+waypoints:
+
+  # ── Dock ──────────────────────────────────────────────────────────────────
+  node_1:
+    type: loading_unloading
+    description: "Dock"
+
+  # ── Charging stations ────────────────────────────────────────────────────
+  node_4:
+    type: charging
+    description: "Charging station"
+
+  node_8:
+    type: charging
+    description: "Charging station"
+
+  # ── Storage spots (dead ends) ───────────────────────────────────────────
+  node_15:
+    type: storage
+    description: "Storage spot"
+
+  node_16:
+    type: storage
+    description: "Storage spot"
+
+  node_17:
+    type: storage
+    description: "Storage spot"
+
+  node_18:
+    type: storage
+    description: "Storage spot"
+
+  node_24:
+    type: storage
+    description: "Storage spot"
+
+  node_25:
+    type: storage
+    description: "Storage spot"
+
+  node_26:
+    type: storage
+    description: "Storage spot"
+
+  node_27:
+    type: storage
+    description: "Storage spot"
+
+  # ── Corridor intersections / pass-throughs ──────────────────────────────
+  node_2:
+    type: intersection
+    description: "Corridor junction"
+
+  node_3:
+    type: intersection
+    description: "Corridor junction"
+
+  node_5:
+    type: intersection
+    description: "Corridor junction"
+
+  node_6:
+    type: intersection
+    description: "Corridor junction"
+
+  node_7:
+    type: intersection
+    description: "Corridor junction"
+
+  node_9:
+    type: intersection
+    description: "Corridor junction"
+
+  node_10:
+    type: intersection
+    description: "Corridor junction"
+
+  node_11:
+    type: intersection
+    description: "Corridor junction"
+
+  node_12:
+    type: intersection
+    description: "Corridor junction"
+
+  node_13:
+    type: intersection
+    description: "Corridor junction"
+
+  node_14:
+    type: intersection
+    description: "Corridor junction"
+
+  node_19:
+    type: intersection
+    description: "Corridor junction"
+
+  node_20:
+    type: intersection
+    description: "Corridor junction"
+
+  node_21:
+    type: intersection
+    description: "Corridor junction"
+
+  node_22:
+    type: intersection
+    description: "Corridor junction"
+
+  node_23:
+    type: intersection
+    description: "Corridor junction"
+
+# bearing is the direction FROM 'from' TO 'to'.
+# All edges are bidirectional for navigation.
+edges:
+
+  # ── Far-west spur chain (node_22 branch) ────────────────────────────────
+  - { from: node_27, to: node_23, bearing:  90, distance: 0.135 }
+  - { from: node_23, to: node_22, bearing: 180, distance: 0.15 }
+  - { from: node_26, to: node_22, bearing:  90, distance: 0.135 }
+  - { from: node_22, to: node_21, bearing: 180, distance: 0.15 }
+
+  # ── node_20 branch ───────────────────────────────────────────────────────
+  - { from: node_21, to: node_20, bearing: 180, distance: 0.15 }
+  - { from: node_25, to: node_20, bearing:  90, distance: 0.135 }
+  - { from: node_20, to: node_19, bearing: 180, distance: 0.15 }
+  - { from: node_24, to: node_19, bearing:  90, distance: 0.135 }
+
+  # ── node_21 to main loop (node_12) ───────────────────────────────────────
+  - { from: node_21, to: node_12, bearing:  90, distance: 0.30 }
+
+  # ── node_14/node_13 branch ───────────────────────────────────────────────
+  - { from: node_18, to: node_14, bearing:  90, distance: 0.135 }
+  - { from: node_14, to: node_13, bearing: 180, distance: 0.15 }
+  - { from: node_17, to: node_13, bearing:  90, distance: 0.135 }
+  - { from: node_13, to: node_12, bearing: 180, distance: 0.15 }
+
+  # ── node_11/node_10/node_9 branch (part of main loop through node_12) ──
+  - { from: node_12, to: node_11, bearing: 180, distance: 0.15 }
+  - { from: node_16, to: node_11, bearing:  90, distance: 0.135 }
+  - { from: node_11, to: node_10, bearing: 180, distance: 0.075 }
+  - { from: node_10, to: node_9,  bearing: 180, distance: 0.075 }
+  - { from: node_15, to: node_9,  bearing:  90, distance: 0.135 }
+
+  # ── Main loop cross-links ────────────────────────────────────────────────
+  - { from: node_12, to: node_6,  bearing:  90, distance: 0.165 }
+  - { from: node_10, to: node_5,  bearing:  90, distance: 0.165 }
+
+  # ── node_8/node_7/node_3/node_4 branch ───────────────────────────────────
+  - { from: node_8, to: node_7, bearing: 180, distance: 0.15 }
+  - { from: node_7, to: node_3, bearing:  90, distance: 0.15 }
+  - { from: node_3, to: node_4, bearing:   0, distance: 0.15 }
+  - { from: node_7, to: node_6, bearing: 180, distance: 0.15 }
+  - { from: node_3, to: node_2, bearing: 180, distance: 0.15 }
+
+  # ── node_6/node_5/node_1/node_2 (rest of main loop) ─────────────────────
+  - { from: node_6, to: node_2, bearing:  90, distance: 0.15 }
+  - { from: node_6, to: node_5, bearing: 180, distance: 0.225 }
+  - { from: node_5, to: node_1, bearing:  90, distance: 0.225 }

@@ -260,6 +260,7 @@
   <div class="dot off" id="conn-dot"></div>
   <h1>Warehouse Logistics</h1>
   <span id="conn-label">Connecting…</span>
+  <a href="/map-editor" style="font-size:0.75rem; color:#64748b; text-decoration:none; padding:4px 10px; border:1px solid #2d3748; border-radius:4px; transition:color 0.15s, border-color 0.15s;" onmouseover="this.style.color='#94a3b8';this.style.borderColor='#475569'" onmouseout="this.style.color='#64748b';this.style.borderColor='#2d3748'">Map Editor</a>
 </header>
 
 <main>
@@ -738,7 +739,25 @@ document.getElementById('btn-random-pickup').addEventListener('click', async () 
 
 // ── Boot ─────────────────────────────────────────────────────────────────────
 
-loadMap().then(connect);
+// Retry fetching the map until the server is ready.  Handles the startup race
+// where the browser connects before uvicorn has finished binding — without this
+// a single failed fetch silently stops the whole boot chain.
+async function boot() {
+  document.getElementById('conn-dot').className = 'dot off';
+  const label = document.getElementById('conn-label');
+  while (true) {
+    try {
+      await loadMap();
+      break;
+    } catch {
+      label.textContent = 'Waiting for server\u2026';
+      await new Promise(r => setTimeout(r, 1000));
+    }
+  }
+  connect();
+}
+
+boot();
 </script>
 </body>
 </html>

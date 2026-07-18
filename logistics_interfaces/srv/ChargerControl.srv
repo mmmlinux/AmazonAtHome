@@ -1,0 +1,8 @@
+string waypoint_id   # which charger to control
+string robot_id      # robot requesting the action (for logging / safety)
+bool   engage        # true = engage charger, false = disengage
+---
+bool   success
+string message
+bool   robot_detected
+bool   charging

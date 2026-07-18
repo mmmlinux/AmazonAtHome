@@ -1,0 +1,1210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Map Editor — Warehouse Logistics</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: #0f1117;
+      color: #e2e8f0;
+      height: 100vh;
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Header ── */
+    header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 8px 16px;
+      background: #181c27;
+      border-bottom: 1px solid #2d3748;
+      flex-shrink: 0;
+    }
+    .back-link {
+      color: #64748b;
+      text-decoration: none;
+      font-size: 0.8rem;
+      padding: 4px 8px;
+      border-radius: 4px;
+      border: 1px solid #2d3748;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .back-link:hover { color: #94a3b8; border-color: #475569; }
+    header h1 { font-size: 1rem; font-weight: 600; flex: 1; }
+    .header-actions { display: flex; gap: 8px; align-items: center; }
+
+    .hbtn {
+      padding: 5px 12px;
+      border-radius: 5px;
+      border: 1px solid #374151;
+      background: #1e2333;
+      color: #94a3b8;
+      font-size: 0.78rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: filter 0.15s, color 0.15s;
+    }
+    .hbtn:hover { filter: brightness(1.2); color: #e2e8f0; }
+    .hbtn.primary { background: #1d4ed8; color: #fff; border-color: #1d4ed8; }
+    .hbtn.primary:hover { filter: brightness(1.15); }
+
+    /* ── Toolbar ── */
+    #toolbar {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 6px 12px;
+      background: #141720;
+      border-bottom: 1px solid #2d3748;
+      flex-shrink: 0;
+    }
+    .tool-btn {
+      padding: 5px 12px;
+      border-radius: 5px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: #64748b;
+      font-size: 0.8rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.12s, color 0.12s, border-color 0.12s;
+    }
+    .tool-btn:hover { background: #1e2333; color: #94a3b8; }
+    .tool-btn.active {
+      background: #1e3a5f;
+      color: #60a5fa;
+      border-color: #1d4ed8;
+    }
+    .tool-sep {
+      width: 1px; height: 20px;
+      background: #2d3748;
+      margin: 0 4px;
+    }
+    #tool-hint {
+      margin-left: 8px;
+      font-size: 0.75rem;
+      color: #475569;
+      font-style: italic;
+    }
+
+    /* ── Workspace ── */
+    #workspace {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+      min-height: 0;
+    }
+
+    /* ── SVG Canvas ── */
+    #editor-svg {
+      flex: 1;
+      background: #0d1018;
+      cursor: default;
+      min-width: 0;
+    }
+    #editor-svg.mode-add-node { cursor: crosshair; }
+    #editor-svg.mode-add-edge { cursor: cell; }
+
+    /* Waypoint hover ring */
+    .wp-group { cursor: pointer; }
+    .wp-group:hover .wp-hover-ring { opacity: 1; }
+    .wp-hover-ring { opacity: 0; transition: opacity 0.1s; }
+
+    /* ── Properties panel ── */
+    #props-panel {
+      width: 260px;
+      min-width: 260px;
+      background: #181c27;
+      border-left: 1px solid #2d3748;
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+
+    .prop-section {
+      padding: 14px;
+      border-bottom: 1px solid #2d3748;
+    }
+    .prop-title {
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #475569;
+      margin-bottom: 12px;
+    }
+    .prop-row {
+      display: flex;
+      flex-direction: column;
+      margin-bottom: 10px;
+    }
+    .prop-row:last-child { margin-bottom: 0; }
+    .prop-label {
+      font-size: 0.72rem;
+      color: #64748b;
+      margin-bottom: 4px;
+    }
+    .prop-input {
+      background: #111827;
+      border: 1px solid #374151;
+      border-radius: 5px;
+      color: #e2e8f0;
+      font-size: 0.8rem;
+      padding: 6px 8px;
+      width: 100%;
+      transition: border-color 0.15s;
+    }
+    .prop-input:focus { outline: none; border-color: #3b82f6; }
+    .prop-value {
+      font-size: 0.8rem;
+      color: #94a3b8;
+      padding: 6px 0;
+      font-family: monospace;
+    }
+    .prop-btn {
+      display: block;
+      width: 100%;
+      padding: 7px 10px;
+      border-radius: 5px;
+      border: 1px solid #374151;
+      background: #1e2333;
+      color: #94a3b8;
+      font-size: 0.8rem;
+      font-weight: 500;
+      cursor: pointer;
+      margin-top: 8px;
+      transition: filter 0.15s, color 0.15s;
+    }
+    .prop-btn:hover { filter: brightness(1.2); color: #e2e8f0; }
+    .prop-btn.primary { background: #1d4ed8; color: #fff; border-color: #1d4ed8; }
+    .prop-btn.danger  { background: #3b1f1f; color: #f87171; border-color: #7f1d1d; }
+    .prop-btn.danger:hover { filter: brightness(1.3); }
+
+    .stat-row {
+      display: flex;
+      gap: 8px;
+      font-size: 0.75rem;
+      color: #475569;
+    }
+    .stat-chip {
+      background: #1e2333;
+      border: 1px solid #2d3748;
+      border-radius: 4px;
+      padding: 3px 8px;
+    }
+
+    /* ── Legend in props panel ── */
+    .legend-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.72rem;
+      color: #64748b;
+    }
+    .legend-dot {
+      width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+    }
+
+    /* ── Status bar ── */
+    #status-bar {
+      position: fixed;
+      bottom: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 8px 20px;
+      border-radius: 6px;
+      font-size: 0.82rem;
+      font-weight: 500;
+      display: none;
+      z-index: 100;
+      pointer-events: none;
+      animation: fadeIn 0.2s ease;
+    }
+    #status-bar.success { background: #064e3b; color: #34d399; border: 1px solid #065f46; }
+    #status-bar.error   { background: #3b1f1f; color: #f87171; border: 1px solid #7f1d1d; }
+    #status-bar.info    { background: #1e3a5f; color: #60a5fa; border: 1px solid #1d4ed8; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateX(-50%) translateY(6px); } }
+
+    /* ── New-node modal overlay ── */
+    #new-node-overlay {
+      display: none;
+      position: fixed; inset: 0;
+      z-index: 200;
+      background: rgba(0,0,0,0.5);
+      align-items: center;
+      justify-content: center;
+    }
+    #new-node-overlay.open { display: flex; }
+    .modal-card {
+      background: #181c27;
+      border: 1px solid #2d3748;
+      border-radius: 10px;
+      padding: 20px;
+      width: 280px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .modal-title {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: #f1f5f9;
+      margin-bottom: 4px;
+    }
+    .modal-row { display: flex; flex-direction: column; gap: 4px; }
+    .modal-row label { font-size: 0.72rem; color: #64748b; }
+    .modal-actions { display: flex; gap: 8px; margin-top: 4px; }
+    .modal-actions button { flex: 1; }
+  </style>
+</head>
+<body>
+
+<header>
+  <a href="/" class="back-link">← Dashboard</a>
+  <h1>Map Editor</h1>
+  <div class="header-actions">
+    <button class="hbtn" id="btn-load">Load from Server</button>
+    <button class="hbtn" id="btn-import">Import YAML…</button>
+    <input type="file" id="file-input" accept=".yaml,.yml" style="display:none">
+    <button class="hbtn" id="btn-export">Export YAML</button>
+    <button class="hbtn primary" id="btn-save">Save to Server</button>
+  </div>
+</header>
+
+<div id="toolbar">
+  <button class="tool-btn active" data-mode="select" title="Select &amp; Move  [S]">✥ Select</button>
+  <button class="tool-btn" data-mode="add-node"  title="Add Waypoint  [N]">＋ Node</button>
+  <button class="tool-btn" data-mode="add-edge"  title="Add Edge  [E]">→ Edge</button>
+  <div class="tool-sep"></div>
+  <button class="tool-btn" id="btn-del" title="Delete Selected  [Del]">✕ Delete</button>
+  <div class="tool-sep"></div>
+  <span id="tool-hint">Click to select • Drag to move</span>
+</div>
+
+<div id="workspace">
+  <svg id="editor-svg" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <marker id="arr" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto">
+        <polygon points="0 0, 7 2.5, 0 5" fill="#4b5563"/>
+      </marker>
+      <marker id="arr-sel" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto">
+        <polygon points="0 0, 7 2.5, 0 5" fill="#60a5fa"/>
+      </marker>
+    </defs>
+    <!-- Grid -->
+    <g id="grid-layer"></g>
+    <g id="canvas-group" transform="translate(0,0) scale(1)">
+      <g id="edges-layer"></g>
+      <g id="nodes-layer"></g>
+    </g>
+  </svg>
+
+  <div id="props-panel"></div>
+</div>
+
+<div id="status-bar"></div>
+
+<!-- New-node modal -->
+<div id="new-node-overlay">
+  <div class="modal-card">
+    <div class="modal-title">New Waypoint</div>
+    <div class="modal-row">
+      <label>ID (unique)</label>
+      <input class="prop-input" id="nn-id" placeholder="e.g. shelf_A11">
+    </div>
+    <div class="modal-row">
+      <label>Type</label>
+      <select class="prop-input" id="nn-type">
+        <option value="intersection">intersection</option>
+        <option value="storage">storage</option>
+        <option value="quick_access">quick_access</option>
+        <option value="charging">charging</option>
+        <option value="loading">loading</option>
+        <option value="unloading">unloading</option>
+        <option value="loading_unloading">loading_unloading</option>
+      </select>
+    </div>
+    <div class="modal-row">
+      <label>Description</label>
+      <input class="prop-input" id="nn-desc" placeholder="optional">
+    </div>
+    <div class="modal-actions">
+      <button class="prop-btn primary" id="nn-confirm">Add</button>
+      <button class="prop-btn" id="nn-cancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ════════════════════════════════════════════════════════════
+//  Constants
+// ════════════════════════════════════════════════════════════
+
+const NODE_COLOR = {
+  charging:          '#f59e0b',
+  loading:           '#34d399',
+  unloading:         '#f97316',
+  loading_unloading: '#34d399',
+  storage:           '#60a5fa',
+  quick_access:      '#a78bfa',
+  intersection:      '#374151',
+};
+
+const NODE_RADIUS = { intersection: 5 };
+const DEFAULT_R   = 9;
+const WAYPOINT_TYPES = [
+  'intersection', 'storage', 'quick_access',
+  'charging', 'loading', 'unloading', 'loading_unloading',
+];
+
+// ════════════════════════════════════════════════════════════
+//  State
+// ════════════════════════════════════════════════════════════
+
+let state = {
+  waypoints: {},   // id -> {type, description, x, y}
+  edges:     [],   // [{from, to}]
+  origin:    '',
+  display:   { origin_x: 300, origin_y: 60, scale: 20 },
+};
+
+let mode      = 'select';   // 'select' | 'add-node' | 'add-edge'
+let selected  = null;       // {type:'waypoint'|'edge', id:str} | {type:'edge', idx:int}
+let edgeSrc   = null;       // waypoint id when placing edge
+let dragState = null;       // {id, startSX, startSY, origX, origY}
+let panState  = null;       // {startCX, startCY, startTX, startTY}
+
+let view = { tx: 40, ty: 40, scale: 1 };
+
+// Pending node placement (before modal confirmed)
+let pendingNodePos = null;
+
+// ════════════════════════════════════════════════════════════
+//  SVG helpers
+// ════════════════════════════════════════════════════════════
+
+function svgEl(tag, attrs = {}) {
+  const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+  return el;
+}
+
+function nodeColor(type) { return NODE_COLOR[type] || '#6b7280'; }
+function nodeR(type)     { return NODE_RADIUS[type] ?? DEFAULT_R; }
+
+// ════════════════════════════════════════════════════════════
+//  Polar math
+// ════════════════════════════════════════════════════════════
+
+function bearing(from, to) {
+  const dx = to.x - from.x, dy = to.y - from.y;
+  return ((Math.atan2(dx, -dy) * 180 / Math.PI) + 360) % 360;
+}
+
+function dist(from, to, scale) {
+  const dx = to.x - from.x, dy = to.y - from.y;
+  return Math.sqrt(dx * dx + dy * dy) / scale;
+}
+
+// ════════════════════════════════════════════════════════════
+//  Render
+// ════════════════════════════════════════════════════════════
+
+function render() {
+  renderEdges();
+  renderNodes();
+}
+
+function renderEdges() {
+  const g = document.getElementById('edges-layer');
+  g.innerHTML = '';
+
+  state.edges.forEach((edge, idx) => {
+    const from = state.waypoints[edge.from];
+    const to   = state.waypoints[edge.to];
+    if (!from || !to) return;
+
+    const isSel   = selected?.type === 'edge' && selected.idx === idx;
+    const color   = isSel ? '#60a5fa' : '#374151';
+    const marker  = isSel ? 'url(#arr-sel)' : 'url(#arr)';
+    const strokeW = isSel ? 2.5 : 1.5;
+
+    // Offset perpendicular so bidirectional pairs are both visible
+    const dx = to.x - from.x, dy = to.y - from.y;
+    const len = Math.sqrt(dx * dx + dy * dy) || 1;
+    const ox = (-dy / len) * 2, oy = (dx / len) * 2;
+
+    // Shorten line to not overlap node circles
+    const rFrom = nodeR(from.type) + 2;
+    const rTo   = nodeR(to.type)   + 2;
+    const frac  = 1 / len;
+    const x1 = from.x + dx * frac * rFrom + ox;
+    const y1 = from.y + dy * frac * rFrom + oy;
+    const x2 = to.x   - dx * frac * (rTo + 7) + ox;
+    const y2 = to.y   - dy * frac * (rTo + 7) + oy;
+
+    const line = svgEl('line', {
+      x1, y1, x2, y2,
+      stroke: color, 'stroke-width': strokeW,
+      'marker-end': marker,
+    });
+
+    // Wide invisible hit area
+    const hit = svgEl('line', {
+      x1, y1, x2, y2,
+      stroke: 'transparent', 'stroke-width': 14, style: 'cursor:pointer',
+    });
+    hit.addEventListener('click', ev => { ev.stopPropagation(); doSelectEdge(idx); });
+
+    g.appendChild(line);
+    g.appendChild(hit);
+
+    // Mid-label
+    const mx = (from.x + to.x) / 2 + ox + 3;
+    const my = (from.y + to.y) / 2 + oy - 4;
+    const b  = bearing(from, to).toFixed(0);
+    const d  = dist(from, to, state.display.scale).toFixed(1);
+    const lbl = svgEl('text', {
+      x: mx, y: my, fill: isSel ? '#93c5fd' : '#4b5563',
+      'font-size': 7, 'font-family': 'monospace', 'pointer-events': 'none',
+    });
+    lbl.textContent = `${b}° ${d}m`;
+    g.appendChild(lbl);
+  });
+}
+
+function renderNodes() {
+  const g = document.getElementById('nodes-layer');
+  g.innerHTML = '';
+
+  for (const [id, wp] of Object.entries(state.waypoints)) {
+    const isSel     = selected?.type === 'waypoint' && selected.id === id;
+    const isSrc     = edgeSrc === id;
+    const isOrigin  = state.origin === id;
+    const r = nodeR(wp.type);
+    const color = nodeColor(wp.type);
+
+    const grp = svgEl('g');
+    grp.classList.add('wp-group');
+    grp.setAttribute('data-id', id);
+
+    // Hover ring (CSS-driven)
+    grp.appendChild(svgEl('circle', {
+      cx: wp.x, cy: wp.y, r: r + 6,
+      fill: 'none', stroke: '#475569', 'stroke-width': 1,
+      class: 'wp-hover-ring', 'pointer-events': 'none',
+    }));
+
+    // Selection / edge-source ring
+    if (isSel || isSrc) {
+      grp.appendChild(svgEl('circle', {
+        cx: wp.x, cy: wp.y, r: r + 6,
+        fill: 'none',
+        stroke: isSrc ? '#34d399' : '#60a5fa',
+        'stroke-width': 2, 'stroke-dasharray': '4 2',
+        'pointer-events': 'none',
+      }));
+    }
+
+    // Origin marker (gold ring)
+    if (isOrigin) {
+      grp.appendChild(svgEl('circle', {
+        cx: wp.x, cy: wp.y, r: r + 10,
+        fill: 'none', stroke: '#fbbf24', 'stroke-width': 1,
+        'pointer-events': 'none',
+      }));
+    }
+
+    // Node body
+    if (wp.type === 'loading_unloading') {
+      grp.appendChild(svgEl('path', {
+        d: `M ${wp.x},${wp.y - r} A ${r},${r} 0 0,0 ${wp.x},${wp.y + r} Z`,
+        fill: '#34d399', 'pointer-events': 'none',
+      }));
+      grp.appendChild(svgEl('path', {
+        d: `M ${wp.x},${wp.y - r} A ${r},${r} 0 0,1 ${wp.x},${wp.y + r} Z`,
+        fill: '#f97316', 'pointer-events': 'none',
+      }));
+      grp.appendChild(svgEl('circle', {
+        cx: wp.x, cy: wp.y, r,
+        fill: 'none', stroke: '#0f1117', 'stroke-width': 2, 'pointer-events': 'none',
+      }));
+    } else {
+      if (wp.type !== 'intersection') {
+        grp.appendChild(svgEl('circle', {
+          cx: wp.x, cy: wp.y, r: r + 3,
+          fill: color, opacity: 0.15, 'pointer-events': 'none',
+        }));
+      }
+      grp.appendChild(svgEl('circle', {
+        cx: wp.x, cy: wp.y, r,
+        fill: color,
+        stroke: isSel ? '#fff' : '#0f1117',
+        'stroke-width': isSel ? 2.5 : 2,
+        'pointer-events': 'none',
+      }));
+    }
+
+    // ID label
+    const txt = svgEl('text', {
+      x: wp.x, y: wp.y + r + 9,
+      'text-anchor': 'middle', fill: '#64748b',
+      'font-size': 7.5, 'font-family': 'monospace', 'pointer-events': 'none',
+    });
+    txt.textContent = id;
+    grp.appendChild(txt);
+
+    // Hit area (invisible circle, same size as visible node, for reliable click/drag)
+    const hit = svgEl('circle', {
+      cx: wp.x, cy: wp.y, r: r + 4,
+      fill: 'transparent', stroke: 'none',
+    });
+    hit.addEventListener('mousedown', ev => onNodeMousedown(ev, id));
+    hit.addEventListener('click',     ev => onNodeClick(ev, id));
+    grp.appendChild(hit);
+
+    g.appendChild(grp);
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+//  View transform
+// ════════════════════════════════════════════════════════════
+
+function applyView() {
+  document.getElementById('canvas-group')
+    .setAttribute('transform', `translate(${view.tx},${view.ty}) scale(${view.scale})`);
+}
+
+// Convert screen coords -> SVG canvas coords
+function toCanvas(cx, cy) {
+  const rect = document.getElementById('editor-svg').getBoundingClientRect();
+  return {
+    x: (cx - rect.left - view.tx) / view.scale,
+    y: (cy - rect.top  - view.ty) / view.scale,
+  };
+}
+
+// ════════════════════════════════════════════════════════════
+//  Mode
+// ════════════════════════════════════════════════════════════
+
+const HINTS = {
+  select:   'Click to select • Drag to move • Alt+drag or middle-click to pan',
+  'add-node': 'Click on the canvas to place a new waypoint',
+  'add-edge': 'Click the source waypoint, then click the destination',
+};
+
+function setMode(m) {
+  mode = m;
+  edgeSrc = null;
+  document.querySelectorAll('.tool-btn[data-mode]').forEach(b => {
+    b.classList.toggle('active', b.dataset.mode === m);
+  });
+  document.getElementById('tool-hint').textContent = HINTS[m] || '';
+  const svg = document.getElementById('editor-svg');
+  svg.className = m === 'add-node' ? 'mode-add-node' : m === 'add-edge' ? 'mode-add-edge' : '';
+  render();
+}
+
+// ════════════════════════════════════════════════════════════
+//  Selection
+// ════════════════════════════════════════════════════════════
+
+function doSelectWaypoint(id) {
+  selected = { type: 'waypoint', id };
+  render();
+  renderProps();
+}
+
+function doSelectEdge(idx) {
+  selected = { type: 'edge', idx };
+  render();
+  renderProps();
+}
+
+function doDeselect() {
+  selected = null;
+  render();
+  renderProps();
+}
+
+// ════════════════════════════════════════════════════════════
+//  Node interaction
+// ════════════════════════════════════════════════════════════
+
+function onNodeClick(ev, id) {
+  ev.stopPropagation();
+  if (mode === 'add-edge') {
+    if (!edgeSrc) {
+      edgeSrc = id;
+      document.getElementById('tool-hint').textContent = `From: ${id}  →  now click destination`;
+      render();
+    } else if (edgeSrc === id) {
+      edgeSrc = null;
+      document.getElementById('tool-hint').textContent = HINTS['add-edge'];
+      render();
+    } else {
+      const dup = state.edges.some(e => e.from === edgeSrc && e.to === id);
+      if (!dup) state.edges.push({ from: edgeSrc, to: id });
+      edgeSrc = null;
+      document.getElementById('tool-hint').textContent = HINTS['add-edge'];
+      render();
+    }
+    return;
+  }
+  if (mode === 'select') doSelectWaypoint(id);
+}
+
+function onNodeMousedown(ev, id) {
+  if (mode !== 'select') return;
+  if (ev.button !== 0) return;
+  ev.preventDefault();
+  ev.stopPropagation();
+  const pos = toCanvas(ev.clientX, ev.clientY);
+  dragState = {
+    id,
+    startSX: pos.x, startSY: pos.y,
+    origX: state.waypoints[id].x, origY: state.waypoints[id].y,
+  };
+  doSelectWaypoint(id);
+}
+
+// ════════════════════════════════════════════════════════════
+//  Delete
+// ════════════════════════════════════════════════════════════
+
+function deleteSelected() {
+  if (!selected) return;
+  if (selected.type === 'waypoint') {
+    const id = selected.id;
+    delete state.waypoints[id];
+    state.edges = state.edges.filter(e => e.from !== id && e.to !== id);
+  } else if (selected.type === 'edge') {
+    state.edges.splice(selected.idx, 1);
+  }
+  selected = null;
+  render();
+  renderProps();
+}
+
+// ════════════════════════════════════════════════════════════
+//  Properties panel
+// ════════════════════════════════════════════════════════════
+
+function renderProps() {
+  const panel = document.getElementById('props-panel');
+
+  if (!selected) {
+    panel.innerHTML = `
+      <div class="prop-section">
+        <div class="prop-title">Map Settings</div>
+        <div class="prop-row">
+          <label class="prop-label">Origin waypoint</label>
+          <input class="prop-input" id="p-origin" value="${esc(state.origin)}">
+        </div>
+        <div class="prop-row">
+          <label class="prop-label">Scale (px / m)</label>
+          <input class="prop-input" type="number" min="1" step="1" id="p-scale" value="${state.display.scale}">
+        </div>
+        <div class="prop-row">
+          <label class="prop-label">SVG origin X</label>
+          <input class="prop-input" type="number" step="1" id="p-ox" value="${state.display.origin_x}">
+        </div>
+        <div class="prop-row">
+          <label class="prop-label">SVG origin Y</label>
+          <input class="prop-input" type="number" step="1" id="p-oy" value="${state.display.origin_y}">
+        </div>
+        <button class="prop-btn primary" id="p-apply-meta">Apply</button>
+      </div>
+      <div class="prop-section">
+        <div class="prop-title">Stats</div>
+        <div class="stat-row">
+          <span class="stat-chip">${Object.keys(state.waypoints).length} waypoints</span>
+          <span class="stat-chip">${state.edges.length} edges</span>
+        </div>
+      </div>
+      <div class="prop-section">
+        <div class="prop-title">Shortcuts</div>
+        <div style="font-size:0.72rem; color:#475569; line-height:1.9">
+          <b style="color:#64748b">S</b> Select &nbsp;
+          <b style="color:#64748b">N</b> New node &nbsp;
+          <b style="color:#64748b">E</b> Edge<br>
+          <b style="color:#64748b">Del</b> Delete selected<br>
+          <b style="color:#64748b">Esc</b> Deselect / cancel<br>
+          <b style="color:#64748b">Wheel</b> Zoom &nbsp;
+          <b style="color:#64748b">Alt+drag</b> Pan
+        </div>
+      </div>
+      <div class="prop-section">
+        <div class="prop-title">Legend</div>
+        <div class="legend-grid">
+          <div class="legend-item"><div class="legend-dot" style="background:#f59e0b"></div>charging</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#34d399"></div>loading</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#f97316"></div>unloading</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#60a5fa"></div>storage</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#a78bfa"></div>quick access</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#374151"></div>intersection</div>
+        </div>
+        <div style="font-size:0.7rem; color:#475569; margin-top:8px;">
+          Gold ring = map origin
+        </div>
+      </div>
+    `;
+    document.getElementById('p-apply-meta').onclick = () => {
+      state.origin           = document.getElementById('p-origin').value.trim();
+      state.display.scale    = parseFloat(document.getElementById('p-scale').value) || 20;
+      state.display.origin_x = parseFloat(document.getElementById('p-ox').value)    || 300;
+      state.display.origin_y = parseFloat(document.getElementById('p-oy').value)    || 60;
+      render();
+      renderProps();
+    };
+    return;
+  }
+
+  if (selected.type === 'waypoint') {
+    const wp = state.waypoints[selected.id];
+    if (!wp) { renderProps(); return; }  // was just deleted
+    const typeOpts = WAYPOINT_TYPES.map(t =>
+      `<option value="${t}"${t === wp.type ? ' selected' : ''}>${t}</option>`
+    ).join('');
+    panel.innerHTML = `
+      <div class="prop-section">
+        <div class="prop-title">Waypoint</div>
+        <div class="prop-row">
+          <label class="prop-label">ID</label>
+          <input class="prop-input" id="p-id" value="${esc(selected.id)}">
+        </div>
+        <div class="prop-row">
+          <label class="prop-label">Type</label>
+          <select class="prop-input" id="p-type">${typeOpts}</select>
+        </div>
+        <div class="prop-row">
+          <label class="prop-label">Description</label>
+          <input class="prop-input" id="p-desc" value="${esc(wp.description || '')}">
+        </div>
+        <div class="prop-row">
+          <label class="prop-label">X (SVG pixels)</label>
+          <input class="prop-input" type="number" step="0.5" id="p-x" value="${wp.x.toFixed(1)}">
+        </div>
+        <div class="prop-row">
+          <label class="prop-label">Y (SVG pixels)</label>
+          <input class="prop-input" type="number" step="0.5" id="p-y" value="${wp.y.toFixed(1)}">
+        </div>
+        <button class="prop-btn primary" id="p-apply-wp">Apply</button>
+        <button class="prop-btn danger" id="p-del-wp">Delete Waypoint</button>
+      </div>
+    `;
+    document.getElementById('p-apply-wp').onclick = applyWaypointEdits;
+    document.getElementById('p-del-wp').onclick    = deleteSelected;
+    return;
+  }
+
+  if (selected.type === 'edge') {
+    const edge = state.edges[selected.idx];
+    if (!edge) { selected = null; renderProps(); return; }
+    const from = state.waypoints[edge.from];
+    const to   = state.waypoints[edge.to];
+    const bStr = from && to ? bearing(from, to).toFixed(1) + '°'       : '—';
+    const dStr = from && to ? dist(from, to, state.display.scale).toFixed(2) + ' m' : '—';
+    panel.innerHTML = `
+      <div class="prop-section">
+        <div class="prop-title">Edge</div>
+        <div class="prop-row">
+          <label class="prop-label">From</label>
+          <div class="prop-value">${esc(edge.from)}</div>
+        </div>
+        <div class="prop-row">
+          <label class="prop-label">To</label>
+          <div class="prop-value">${esc(edge.to)}</div>
+        </div>
+        <div class="prop-row">
+          <label class="prop-label">Bearing</label>
+          <div class="prop-value">${bStr}</div>
+        </div>
+        <div class="prop-row">
+          <label class="prop-label">Distance</label>
+          <div class="prop-value">${dStr}</div>
+        </div>
+        <button class="prop-btn danger" id="p-del-edge">Delete Edge</button>
+      </div>
+      <div class="prop-section" style="font-size:0.72rem; color:#475569;">
+        Bearings and distances are computed from node positions.<br>
+        Move nodes to adjust them.
+      </div>
+    `;
+    document.getElementById('p-del-edge').onclick = deleteSelected;
+  }
+}
+
+function applyWaypointEdits() {
+  const newId = document.getElementById('p-id').value.trim();
+  const oldId = selected.id;
+  const wp = state.waypoints[oldId];
+  if (!wp) return;
+
+  wp.type        = document.getElementById('p-type').value;
+  wp.description = document.getElementById('p-desc').value;
+  wp.x           = parseFloat(document.getElementById('p-x').value) || wp.x;
+  wp.y           = parseFloat(document.getElementById('p-y').value) || wp.y;
+
+  if (newId && newId !== oldId) {
+    if (state.waypoints[newId]) {
+      showStatus(`ID "${newId}" already exists.`, 'error');
+      return;
+    }
+    state.waypoints[newId] = wp;
+    delete state.waypoints[oldId];
+    state.edges = state.edges.map(e => ({
+      from: e.from === oldId ? newId : e.from,
+      to:   e.to   === oldId ? newId : e.to,
+    }));
+    if (state.origin === oldId) state.origin = newId;
+    selected.id = newId;
+  }
+  render();
+  renderProps();
+}
+
+function esc(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// ════════════════════════════════════════════════════════════
+//  New-node modal
+// ════════════════════════════════════════════════════════════
+
+function openNewNodeModal(canvasX, canvasY) {
+  pendingNodePos = { x: canvasX, y: canvasY };
+  document.getElementById('nn-id').value   = '';
+  document.getElementById('nn-type').value = 'intersection';
+  document.getElementById('nn-desc').value = '';
+  document.getElementById('new-node-overlay').classList.add('open');
+  setTimeout(() => document.getElementById('nn-id').focus(), 50);
+}
+
+function closeNewNodeModal() {
+  pendingNodePos = null;
+  document.getElementById('new-node-overlay').classList.remove('open');
+}
+
+document.getElementById('nn-confirm').addEventListener('click', () => {
+  const id   = document.getElementById('nn-id').value.trim();
+  const type = document.getElementById('nn-type').value;
+  const desc = document.getElementById('nn-desc').value.trim();
+  if (!id) { document.getElementById('nn-id').focus(); return; }
+  if (state.waypoints[id]) { showStatus(`ID "${id}" already exists.`, 'error'); return; }
+  state.waypoints[id] = { type, description: desc, x: pendingNodePos.x, y: pendingNodePos.y };
+  if (!state.origin) state.origin = id;
+  closeNewNodeModal();
+  doSelectWaypoint(id);
+});
+
+document.getElementById('nn-cancel').addEventListener('click', closeNewNodeModal);
+
+document.getElementById('nn-id').addEventListener('keydown', ev => {
+  if (ev.key === 'Enter') document.getElementById('nn-confirm').click();
+  if (ev.key === 'Escape') closeNewNodeModal();
+});
+
+// ════════════════════════════════════════════════════════════
+//  YAML export
+// ════════════════════════════════════════════════════════════
+
+function toYaml() {
+  const L = [];
+  L.push('# Warehouse map — polar edge format');
+  L.push('#');
+  L.push('# bearing: compass degrees  (0 = North/up, 90 = East/right,');
+  L.push('#                            180 = South/down, 270 = West/left)');
+  L.push('# distance: meters');
+  L.push('');
+  L.push('display:');
+  L.push(`  origin_x: ${state.display.origin_x}`);
+  L.push(`  origin_y: ${state.display.origin_y}`);
+  L.push(`  scale: ${state.display.scale}`);
+  L.push('');
+  L.push(`origin: ${state.origin || ''}`);
+  L.push('');
+  L.push('waypoints:');
+  L.push('');
+  for (const [id, wp] of Object.entries(state.waypoints)) {
+    L.push(`  ${id}:`);
+    L.push(`    type: ${wp.type}`);
+    L.push(`    description: "${(wp.description || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`);
+    L.push('');
+  }
+  L.push('edges:');
+  L.push('');
+  for (const edge of state.edges) {
+    const from = state.waypoints[edge.from];
+    const to   = state.waypoints[edge.to];
+    if (!from || !to) continue;
+    const b = bearing(from, to).toFixed(1);
+    const d = dist(from, to, state.display.scale).toFixed(2);
+    L.push(`  - { from: ${edge.from}, to: ${edge.to}, bearing: ${b}, distance: ${d} }`);
+  }
+  return L.join('\n');
+}
+
+// ════════════════════════════════════════════════════════════
+//  Load from enriched map data  (waypoints already have x, y)
+// ════════════════════════════════════════════════════════════
+
+function loadFromMapData(data) {
+  const disp = data.display || {};
+  state.display = {
+    origin_x: disp.origin_x ?? 300,
+    origin_y: disp.origin_y ?? 60,
+    scale:    disp.scale    ?? 20,
+  };
+  state.origin = data.origin || '';
+  state.waypoints = {};
+  for (const [id, wp] of Object.entries(data.waypoints || {})) {
+    state.waypoints[id] = {
+      type:        wp.type        || 'intersection',
+      description: wp.description || '',
+      x:           wp.x           ?? state.display.origin_x,
+      y:           wp.y           ?? state.display.origin_y,
+    };
+  }
+  state.edges = (data.edges || []).map(e => ({ from: e.from, to: e.to }));
+  selected = null;
+  edgeSrc  = null;
+  // Auto-fit view to content
+  fitView();
+  render();
+  renderProps();
+}
+
+function fitView() {
+  const svg  = document.getElementById('editor-svg');
+  const pts  = Object.values(state.waypoints);
+  if (!pts.length) return;
+  const pad  = 60;
+  const xs   = pts.map(p => p.x);
+  const ys   = pts.map(p => p.y);
+  const minX = Math.min(...xs) - pad, maxX = Math.max(...xs) + pad;
+  const minY = Math.min(...ys) - pad, maxY = Math.max(...ys) + pad;
+  const W = svg.clientWidth  || 800;
+  const H = svg.clientHeight || 600;
+  const scaleX = W / (maxX - minX);
+  const scaleY = H / (maxY - minY);
+  view.scale = Math.min(scaleX, scaleY, 2) * 0.95;
+  view.tx    = (W - (minX + maxX) * view.scale) / 2;
+  view.ty    = (H - (minY + maxY) * view.scale) / 2;
+  applyView();
+}
+
+// ════════════════════════════════════════════════════════════
+//  Status bar
+// ════════════════════════════════════════════════════════════
+
+let _statusTimer;
+function showStatus(msg, type = 'info') {
+  const el = document.getElementById('status-bar');
+  el.textContent = msg;
+  el.className   = type;
+  el.style.display = 'block';
+  clearTimeout(_statusTimer);
+  _statusTimer = setTimeout(() => { el.style.display = 'none'; }, 3000);
+}
+
+// ════════════════════════════════════════════════════════════
+//  Main setup (runs after DOM ready)
+// ════════════════════════════════════════════════════════════
+
+document.addEventListener('DOMContentLoaded', () => {
+  const svg = document.getElementById('editor-svg');
+
+  applyView();
+
+  // ── Toolbar buttons ───────────────────────────────────────
+  document.querySelectorAll('.tool-btn[data-mode]').forEach(btn => {
+    btn.addEventListener('click', () => setMode(btn.dataset.mode));
+  });
+  document.getElementById('btn-del').addEventListener('click', deleteSelected);
+
+  // ── SVG canvas events ─────────────────────────────────────
+
+  // Click on empty canvas
+  svg.addEventListener('click', ev => {
+    if (ev.target === svg || ev.target.id === 'editor-svg') {
+      if (mode === 'add-node') {
+        const p = toCanvas(ev.clientX, ev.clientY);
+        openNewNodeModal(p.x, p.y);
+      } else {
+        doDeselect();
+      }
+    }
+  });
+
+  // Also deselect/place when clicking the canvas-group background
+  document.getElementById('canvas-group').addEventListener('click', ev => {
+    if (ev.target.id === 'canvas-group' || ev.target.closest('#edges-layer') === ev.target) return;
+    // let node/edge handlers stop propagation; if it reaches here it's background
+  });
+
+  // Drag (move nodes)
+  svg.addEventListener('mousemove', ev => {
+    if (dragState) {
+      const p  = toCanvas(ev.clientX, ev.clientY);
+      const dx = p.x - dragState.startSX;
+      const dy = p.y - dragState.startSY;
+      state.waypoints[dragState.id].x = dragState.origX + dx;
+      state.waypoints[dragState.id].y = dragState.origY + dy;
+      render();
+      // Update x/y in panel if open
+      const px = document.getElementById('p-x');
+      const py = document.getElementById('p-y');
+      if (px) { px.value = state.waypoints[dragState.id].x.toFixed(1); }
+      if (py) { py.value = state.waypoints[dragState.id].y.toFixed(1); }
+    }
+    if (panState) {
+      view.tx = panState.startTX + (ev.clientX - panState.startCX);
+      view.ty = panState.startTY + (ev.clientY - panState.startCY);
+      applyView();
+    }
+  });
+
+  svg.addEventListener('mouseup', ev => {
+    if (dragState) { dragState = null; renderProps(); }
+    if (panState)  { panState  = null; svg.style.cursor = ''; }
+  });
+
+  // Pan (middle-click or Alt+left-drag)
+  svg.addEventListener('mousedown', ev => {
+    if (ev.button === 1 || (ev.button === 0 && ev.altKey)) {
+      ev.preventDefault();
+      panState = {
+        startCX: ev.clientX, startCY: ev.clientY,
+        startTX: view.tx,    startTY: view.ty,
+      };
+      svg.style.cursor = 'grabbing';
+    }
+  });
+
+  // Zoom (wheel)
+  svg.addEventListener('wheel', ev => {
+    ev.preventDefault();
+    const rect  = svg.getBoundingClientRect();
+    const mx    = ev.clientX - rect.left;
+    const my    = ev.clientY - rect.top;
+    const delta = ev.deltaY > 0 ? 0.85 : 1 / 0.85;
+    view.tx    = mx + (view.tx - mx) * delta;
+    view.ty    = my + (view.ty - my) * delta;
+    view.scale *= delta;
+    applyView();
+  }, { passive: false });
+
+  // Context menu — suppress
+  svg.addEventListener('contextmenu', ev => ev.preventDefault());
+
+  // ── Keyboard shortcuts ─────────────────────────────────────
+  document.addEventListener('keydown', ev => {
+    const tag = ev.target.tagName;
+    if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+    if (document.getElementById('new-node-overlay').classList.contains('open')) return;
+    if (ev.key === 's' || ev.key === 'S') { ev.preventDefault(); setMode('select'); }
+    if (ev.key === 'n' || ev.key === 'N') { ev.preventDefault(); setMode('add-node'); }
+    if (ev.key === 'e' || ev.key === 'E') { ev.preventDefault(); setMode('add-edge'); }
+    if (ev.key === 'Delete' || ev.key === 'Backspace') { ev.preventDefault(); deleteSelected(); }
+    if (ev.key === 'Escape') {
+      ev.preventDefault();
+      if (edgeSrc) { edgeSrc = null; document.getElementById('tool-hint').textContent = HINTS['add-edge']; render(); }
+      else { doDeselect(); setMode('select'); }
+    }
+    if (ev.key === 'f' || ev.key === 'F') fitView();
+  });
+
+  // ── Header actions ─────────────────────────────────────────
+
+  document.getElementById('btn-load').addEventListener('click', async () => {
+    try {
+      const data = await fetch('/map').then(r => r.json());
+      loadFromMapData(data);
+      showStatus('Map loaded from server.', 'success');
+    } catch (err) {
+      showStatus('Failed to load: ' + err.message, 'error');
+    }
+  });
+
+  document.getElementById('btn-import').addEventListener('click', () => {
+    document.getElementById('file-input').click();
+  });
+
+  document.getElementById('file-input').addEventListener('change', async ev => {
+    const file = ev.target.files[0];
+    if (!file) return;
+    const text = await file.text();
+    try {
+      const resp = await fetch('/map/parse', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ yaml_content: text }),
+      });
+      const result = await resp.json();
+      if (!result.ok) throw new Error(result.error);
+      loadFromMapData(result.data);
+      showStatus(`Imported "${file.name}".`, 'success');
+    } catch (err) {
+      showStatus('Import failed: ' + err.message, 'error');
+    }
+    ev.target.value = '';
+  });
+
+  document.getElementById('btn-export').addEventListener('click', () => {
+    const yaml = toYaml();
+    const blob = new Blob([yaml], { type: 'text/yaml' });
+    const a    = document.createElement('a');
+    a.href     = URL.createObjectURL(blob);
+    a.download = 'warehouse_map.yaml';
+    a.click();
+    URL.revokeObjectURL(a.href);
+    showStatus('YAML file downloaded.', 'success');
+  });
+
+  document.getElementById('btn-save').addEventListener('click', async () => {
+    const yaml = toYaml();
+    try {
+      const resp = await fetch('/map/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ yaml_content: yaml }),
+      });
+      const result = await resp.json();
+      if (result.ok) showStatus('Saved to server and reloaded.', 'success');
+      else           showStatus('Save failed: ' + result.error, 'error');
+    } catch (err) {
+      showStatus('Save failed: ' + err.message, 'error');
+    }
+  });
+
+  // ── Initial load ───────────────────────────────────────────
+  renderProps();
+
+  // Auto-load the current map on page open
+  fetch('/map')
+    .then(r => r.json())
+    .then(data => { loadFromMapData(data); })
+    .catch(() => { /* server may not be running — that's fine */ });
+});
+</script>
+</body>
+</html>

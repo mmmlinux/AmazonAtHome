@@ -142,9 +142,11 @@ def _parse_positions(data: dict) -> dict:
 # ── FastAPI app ───────────────────────────────────────────────────────────────
 
 app = FastAPI()
-_map_data:   dict            = {}
-_static_dir: Path            = Path()
-_web_node:   'WebNode | None' = None
+_map_data:      dict            = {}
+_raw_map_data:  dict            = {}
+_map_file_path: str             = ''
+_static_dir:    Path            = Path()
+_web_node:      'WebNode | None' = None
 
 
 @app.get('/')
@@ -152,9 +154,61 @@ async def index():
     return FileResponse(str(_static_dir / 'index.html'))
 
 
+@app.get('/map-editor')
+async def map_editor():
+    return FileResponse(str(_static_dir / 'map_editor.html'))
+
+
+@app.get('/map-view')
+async def map_view():
+    return FileResponse(str(_static_dir / 'map_view.html'))
+
+
 @app.get('/map')
 def get_map():
     return JSONResponse(_map_data)
+
+
+class MapSaveRequest(BaseModel):
+    yaml_content: str
+
+
+# TODO: Add authentication/authorization to all mutating endpoints.
+# Currently any client on the network can submit tasks, toggle slot occupancy,
+# and overwrite the warehouse map file.  At minimum, require a shared secret
+# API key in the Authorization header for POST /task/*, POST /slot/set, and
+# POST /map/save.  For production, consider JWT or session-based auth.
+@app.post('/map/save')
+def post_map_save(req: MapSaveRequest):
+    global _map_data, _raw_map_data
+    if not _map_file_path:
+        return JSONResponse({'ok': False, 'error': 'Map file path not configured'})
+    try:
+        data = yaml.safe_load(req.yaml_content)
+        if not data or 'waypoints' not in data or 'edges' not in data:
+            return JSONResponse({'ok': False, 'error': 'Invalid map YAML: missing waypoints or edges'})
+        with open(_map_file_path, 'w') as f:
+            f.write(req.yaml_content)
+        _raw_map_data = data
+        enriched = dict(data)
+        enriched['waypoints'] = _parse_positions(data)
+        _map_data = enriched
+        return JSONResponse({'ok': True, 'message': 'Map saved and reloaded'})
+    except Exception as e:
+        return JSONResponse({'ok': False, 'error': str(e)})
+
+
+@app.post('/map/parse')
+def post_map_parse(req: MapSaveRequest):
+    try:
+        data = yaml.safe_load(req.yaml_content)
+        if not data or 'waypoints' not in data:
+            return JSONResponse({'ok': False, 'error': 'Invalid map YAML structure'})
+        enriched = dict(data)
+        enriched['waypoints'] = _parse_positions(data)
+        return JSONResponse({'ok': True, 'data': enriched})
+    except Exception as e:
+        return JSONResponse({'ok': False, 'error': str(e)})
 
 
 class TaskRequest(BaseModel):
@@ -187,6 +241,12 @@ def post_slot_set(req: SlotToggleRequest):
     return _web_node.set_slot_occupancy(req.waypoint_id, req.occupied)
 
 
+# TODO: Add a manual/override control mode for operators:
+#   POST /robot/{id}/estop   — send emergency stop to a specific robot
+#   POST /robot/{id}/resume  — clear estop and allow autonomous operation
+#   POST /robot/{id}/goto    — manually command a robot to a waypoint
+# This is essential for recovering from stuck or misbehaving robots without
+# restarting the system or physically intervening.
 @app.websocket('/ws')
 async def ws_endpoint(ws: WebSocket):
     await ws.accept()
@@ -263,12 +323,16 @@ class WebNode(Node):
     # ── Map ───────────────────────────────────────────────────────────────────
 
     def _load_map(self, map_file: str) -> dict:
+        global _raw_map_data, _map_file_path
         if not map_file:
             raise RuntimeError('map_file parameter is required')
         with open(map_file) as f:
             data = yaml.safe_load(f)
-        data['waypoints'] = _parse_positions(data)
-        return data
+        _raw_map_data = data
+        _map_file_path = map_file
+        enriched = dict(data)
+        enriched['waypoints'] = _parse_positions(data)
+        return enriched
 
     # ── Topic callbacks ───────────────────────────────────────────────────────
 

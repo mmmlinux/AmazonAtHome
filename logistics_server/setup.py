@@ -11,7 +11,7 @@ setup(
     data_files=[
         ('share/ament_index/resource_index/packages', ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
-        (os.path.join('share', package_name, 'config'), glob('config/*.yaml')),
+        (os.path.join('share', package_name, 'config'), glob('config/*.yaml')),  # includes robots.yaml
         (os.path.join('share', package_name, 'launch'), glob('launch/*.py')),
     ],
     install_requires=['setuptools'],
@@ -25,6 +25,7 @@ setup(
             'nav_server = logistics_server.nav_server:main',
             'task_client = logistics_server.task_client:main',
             'traffic_controller = logistics_server.traffic_controller:main',
+            'charger_manager = logistics_server.charger_manager:main',
         ],
     },
 )

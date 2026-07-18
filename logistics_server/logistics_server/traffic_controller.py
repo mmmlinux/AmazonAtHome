@@ -28,6 +28,7 @@ Services
 
 import re
 import threading
+import time
 
 import rclpy
 from rclpy.callback_groups import ReentrantCallbackGroup
@@ -100,8 +101,27 @@ class TrafficControllerNode(Node):
         # Pending blocked requests: robot_id → (wanted_waypoint, blocking_robot_id)
         self._pending: dict[str, tuple[str, str]] = {}
 
+        # Tracks the last time each robot was yielded and what it wanted.
+        # Used to detect robots that can't retreat (e.g. at a dead-end waypoint):
+        # if the same robot re-deadlocks for the same waypoint within the memory
+        # window, it couldn't retreat — yield the other robot instead.
+        # TODO: Periodically prune _recent_yields entries older than
+        # _YIELD_MEMORY_S so the dict doesn't grow without bound over long runs
+        # (e.g. schedule a cleanup timer every 60 s).
+        self._recent_yields: dict[str, tuple[str, float]] = {}
+        self._YIELD_MEMORY_S = 15.0
+
         # Per-robot yield publishers, created lazily.
         self._yield_pubs: dict[str, rclpy.publisher.Publisher] = {}
+
+        # TODO: Add a stale-lock cleanup mechanism.  If a robot crashes without
+        # calling release, its waypoint locks stay forever and block other robots.
+        # Options: (a) a heartbeat topic from each nav_server — clear locks for
+        # any robot that hasn't published in > N seconds; (b) a TTL on each lock
+        # entry reset on every acquire.  Without this, a single crashed robot
+        # requires a full system restart to clear.
+        # TODO: Add a /traffic/reset_robot service that operators can call to
+        # manually clear all locks held by a specific robot after a crash.
 
         cb = ReentrantCallbackGroup()
         self.create_service(
@@ -143,28 +163,57 @@ class TrafficControllerNode(Node):
         """
         Decide which robot should yield and send it a yield signal.
 
-        Special rule: if one robot wants an aisle waypoint (entering) and the
-        other wants a non-aisle waypoint (exiting), the entering robot always
-        yields — the exiting robot must be allowed to clear the aisle first.
+        Decision order
+        ~~~~~~~~~~~~~~
+        1. Retreat-stuck check: if a robot was recently yielded for the same
+           waypoint and is deadlocked again, it couldn't retreat (e.g. it is at
+           a dead-end like a dock or charger spur).  Yield the OTHER robot instead.
+        2. Aisle-exit rule: if one robot is entering an aisle and the other is
+           exiting, the entering robot always yields.
+        3. Priority: lower movement priority yields.
+        4. Tie-break: lexicographically lower robot ID yields (deterministic).
         """
-        key_a = _aisle_key(wants_a)
-        key_b = _aisle_key(wants_b)
+        now = time.time()
 
-        if key_a and not key_b:
-            yield_target = robot_a   # A is entering, B is exiting → A yields
-        elif key_b and not key_a:
-            yield_target = robot_b   # B is entering, A is exiting → B yields
-        elif prio_a < prio_b:
-            yield_target = robot_a   # A has lower priority
-        elif prio_b < prio_a:
-            yield_target = robot_b
+        # Check whether either robot has been recently yielded for the same want,
+        # which indicates it couldn't retreat (dead-end waypoint).
+        a_rec = self._recent_yields.get(robot_a)
+        b_rec = self._recent_yields.get(robot_b)
+        a_stuck = a_rec and a_rec[0] == wants_a and now - a_rec[1] < self._YIELD_MEMORY_S
+        b_stuck = b_rec and b_rec[0] == wants_b and now - b_rec[1] < self._YIELD_MEMORY_S
+
+        if a_stuck and not b_stuck:
+            yield_target = robot_b   # A is stuck at a dead end → yield B instead
+            reason = f'{robot_a} already yielded for {wants_a} and could not retreat'
+        elif b_stuck and not a_stuck:
+            yield_target = robot_a
+            reason = f'{robot_b} already yielded for {wants_b} and could not retreat'
         else:
-            yield_target = min(robot_a, robot_b)  # tie-break by ID
+            key_a = _aisle_key(wants_a)
+            key_b = _aisle_key(wants_b)
+            if key_a and not key_b:
+                yield_target = robot_a   # A entering aisle, B exiting → A yields
+                reason = f'{robot_a} entering aisle, {robot_b} must exit first'
+            elif key_b and not key_a:
+                yield_target = robot_b
+                reason = f'{robot_b} entering aisle, {robot_a} must exit first'
+            elif prio_a < prio_b:
+                yield_target = robot_a
+                reason = f'{robot_a} has lower priority (p{prio_a} < p{prio_b})'
+            elif prio_b < prio_a:
+                yield_target = robot_b
+                reason = f'{robot_b} has lower priority (p{prio_b} < p{prio_a})'
+            else:
+                yield_target = min(robot_a, robot_b)
+                reason = 'equal priority — tie-break by ID'
 
         self.get_logger().info(
             f'Deadlock: {robot_a}(p{prio_a},→{wants_a}) ↔ '
             f'{robot_b}(p{prio_b},→{wants_b}) — '
-            f'signalling {yield_target} to yield'
+            f'yielding {yield_target} [{reason}]'
+        )
+        self._recent_yields[yield_target] = (
+            wants_a if yield_target == robot_a else wants_b, now
         )
         self._get_yield_pub(yield_target).publish(Empty())
         self._pending.pop(yield_target, None)

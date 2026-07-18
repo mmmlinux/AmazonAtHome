@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Warehouse — Live Map</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #0f1117;
+      height: 100vh;
+      height: 100dvh;
+      overflow: hidden;
+    }
+
+    #map-panel {
+      width: 100%;
+      height: 100%;
+      display: flex;
+    }
+
+    #map-svg {
+      width: 100%;
+      height: 100%;
+      background: #181c27;
+    }
+
+    /* ── HUD overlay (top bar) ── */
+    #hud {
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 16px;
+      background: linear-gradient(to bottom, rgba(15,17,23,0.88) 0%, transparent 100%);
+      pointer-events: none;
+      z-index: 10;
+    }
+    #hud a {
+      pointer-events: auto;
+      font-size: 0.72rem;
+      color: #64748b;
+      text-decoration: none;
+      padding: 3px 9px;
+      border: 1px solid #2d3748;
+      border-radius: 4px;
+      margin-left: auto;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    #hud a:hover { color: #94a3b8; border-color: #475569; }
+
+    #hud-title {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      font-size: 0.92rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      color: #e2e8f0;
+    }
+    #conn-label {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      font-size: 0.72rem;
+      color: #64748b;
+    }
+
+    .dot {
+      width: 9px; height: 9px; border-radius: 50%;
+      background: #10b981; flex-shrink: 0;
+      transition: background 0.3s;
+    }
+    .dot.off { background: #4b5563; }
+
+    /* ── Legend overlay (bottom-right) ── */
+    #legend {
+      position: absolute;
+      bottom: 16px; right: 16px;
+      background: rgba(24, 28, 39, 0.92);
+      border: 1px solid #2d3748;
+      border-radius: 8px;
+      padding: 12px 14px;
+      z-index: 10;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      backdrop-filter: blur(4px);
+    }
+    .legend-section {
+      font-size: 0.62rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #475569;
+      margin-bottom: 7px;
+    }
+    .legend-section + .legend-section, .legend-divider {
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid #2d3748;
+    }
+    .legend-row {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 0.75rem; color: #94a3b8; margin-bottom: 5px;
+    }
+    .legend-row:last-child { margin-bottom: 0; }
+    .legend-dot {
+      width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+    }
+    .legend-badge {
+      display: inline-block;
+      font-size: 0.62rem; font-weight: 600; letter-spacing: 0.03em;
+      padding: 1px 6px; border-radius: 3px;
+      flex-shrink: 0;
+    }
+
+    /* ── Robot animation ── */
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.6; }
+    }
+    .robot-dot.moving { animation: pulse 0.8s ease-in-out infinite; }
+
+    /* ── Clickable slot nodes ── */
+    .slot-node { cursor: pointer; }
+    .slot-node:hover circle { filter: brightness(1.3); }
+  </style>
+</head>
+<body>
+
+<!-- Map fills the entire viewport -->
+<div id="map-panel">
+  <svg id="map-svg" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+        <feGaussianBlur in="SourceGraphic" stdDeviation="5" result="blur"/>
+        <feMerge>
+          <feMergeNode in="blur"/>
+          <feMergeNode in="SourceGraphic"/>
+        </feMerge>
+      </filter>
+    </defs>
+    <g id="edges-layer"></g>
+    <g id="nodes-layer"></g>
+    <g id="robots-layer"></g>
+  </svg>
+</div>
+
+<!-- Top HUD -->
+<div id="hud">
+  <div class="dot off" id="conn-dot"></div>
+  <span id="hud-title">Warehouse — Live Map</span>
+  <span id="conn-label">Connecting…</span>
+  <a href="/">Full UI ↗</a>
+</div>
+
+<!-- Legend -->
+<div id="legend">
+  <div class="legend-section">Locations</div>
+  <div class="legend-row"><div class="legend-dot" style="background:#f59e0b"></div>Charging station</div>
+  <div class="legend-row"><div class="legend-dot" style="background:#34d399"></div>Loading dock</div>
+  <div class="legend-row"><div class="legend-dot" style="background:#f97316"></div>Unloading dock</div>
+  <div class="legend-row"><div class="legend-dot" style="background:#60a5fa"></div>Storage shelf</div>
+  <div class="legend-row"><div class="legend-dot" style="background:#a78bfa"></div>Quick access</div>
+  <div class="legend-row"><div class="legend-dot" style="background:#374151"></div>Intersection</div>
+  <div class="legend-row" style="margin-top:6px; padding-top:6px; border-top:1px solid #2d3748">
+    <div class="legend-dot" style="background:#60a5fa; border:2px solid #fff"></div>
+    Occupied slot
+  </div>
+
+  <div class="legend-section legend-divider">Robot state</div>
+  <div class="legend-row"><span class="legend-badge" style="background:#1e2333; color:#475569">Idle</span>Idle</div>
+  <div class="legend-row"><span class="legend-badge" style="background:#1e3a5f; color:#60a5fa">Transit</span>Travelling empty</div>
+  <div class="legend-row"><span class="legend-badge" style="background:#1c3a2a; color:#34d399">Loaded</span>Carrying payload</div>
+  <div class="legend-row"><span class="legend-badge" style="background:#3b1f1f; color:#f87171">Charge</span>Returning to charge</div>
+</div>
+
+<script>
+// ── Constants ────────────────────────────────────────────────────────────────
+
+const NODE_COLOR = {
+  charging:          '#f59e0b',
+  loading:           '#34d399',
+  unloading:         '#f97316',
+  loading_unloading: '#34d399',
+  storage:           '#60a5fa',
+  quick_access:      '#a78bfa',
+  intersection:      '#374151',
+};
+const NODE_RADIUS    = { intersection: 4 };
+const DEFAULT_RADIUS = 8;
+
+const ROBOT_PALETTE = ['#ef4444', '#3b82f6', '#a855f7', '#f59e0b', '#10b981'];
+
+// ── Runtime state ─────────────────────────────────────────────────────────────
+
+let positions  = {};   // waypoint_id -> {x, y}
+let robotMeta  = {};   // robot_id    -> {svgEl}
+let slotNodes  = {};   // waypoint_id -> {mainCircle, occupancyDot}
+let paletteIdx = 0;
+
+// ── SVG helper ────────────────────────────────────────────────────────────────
+
+function svgEl(tag, attrs = {}) {
+  const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+  return el;
+}
+
+// ── Map rendering ─────────────────────────────────────────────────────────────
+
+async function loadMap() {
+  const map = await fetch('/map').then(r => r.json());
+
+  for (const [id, info] of Object.entries(map.waypoints))
+    positions[id] = { x: info.x, y: info.y };
+
+  // Fit viewBox to all waypoints
+  const pad = 60;
+  const xs  = Object.values(positions).map(p => p.x);
+  const ys  = Object.values(positions).map(p => p.y);
+  const minX = Math.min(...xs) - pad, maxX = Math.max(...xs) + pad;
+  const minY = Math.min(...ys) - pad, maxY = Math.max(...ys) + pad;
+  document.getElementById('map-svg')
+    .setAttribute('viewBox', `${minX} ${minY} ${maxX - minX} ${maxY - minY}`);
+
+  const edgesG = document.getElementById('edges-layer');
+  const nodesG = document.getElementById('nodes-layer');
+
+  // Edges
+  for (const edge of map.edges) {
+    const pa = positions[edge.from], pb = positions[edge.to];
+    if (!pa || !pb) continue;
+    edgesG.appendChild(svgEl('line', {
+      x1: pa.x, y1: pa.y, x2: pb.x, y2: pb.y,
+      stroke: '#2d3748', 'stroke-width': 2, 'stroke-linecap': 'round',
+    }));
+  }
+
+  // Nodes
+  const trackableTypes = new Set(['storage', 'quick_access', 'loading', 'unloading', 'loading_unloading']);
+
+  for (const [id, info] of Object.entries(map.waypoints)) {
+    const pos          = positions[id];
+    const r            = NODE_RADIUS[info.type] ?? DEFAULT_RADIUS;
+    const isIntersection = info.type === 'intersection';
+    const isTrackable  = trackableTypes.has(info.type);
+    const g            = svgEl('g');
+    if (isTrackable) g.classList.add('slot-node');
+
+    let mainCircle = null;
+
+    if (info.type === 'loading_unloading') {
+      const [cx, cy] = [pos.x, pos.y];
+      g.appendChild(svgEl('path', {
+        d: `M ${cx},${cy - r} A ${r},${r} 0 0,0 ${cx},${cy + r} Z`,
+        fill: '#34d399', stroke: 'none',
+      }));
+      g.appendChild(svgEl('path', {
+        d: `M ${cx},${cy - r} A ${r},${r} 0 0,1 ${cx},${cy + r} Z`,
+        fill: '#f97316', stroke: 'none',
+      }));
+      mainCircle = svgEl('circle', { cx, cy, r, fill: 'none', stroke: '#0f1117', 'stroke-width': 2 });
+      g.appendChild(mainCircle);
+      g.appendChild(svgEl('line', { x1: cx, y1: cy - r, x2: cx, y2: cy + r, stroke: '#0f1117', 'stroke-width': 1 }));
+    } else {
+      const color = NODE_COLOR[info.type] || '#6b7280';
+      if (!isIntersection) {
+        g.appendChild(svgEl('circle', { cx: pos.x, cy: pos.y, r: r + 3, fill: color, opacity: 0.15 }));
+      }
+      mainCircle = svgEl('circle', {
+        cx: pos.x, cy: pos.y, r,
+        fill: color, stroke: '#0f1117', 'stroke-width': 2,
+      });
+      g.appendChild(mainCircle);
+    }
+
+    // Occupancy dot — white centre when occupied, clickable to toggle
+    if (isTrackable) {
+      const occupancyDot = svgEl('circle', {
+        cx: pos.x, cy: pos.y, r: Math.max(3, r * 0.28),
+        fill: '#ffffff', opacity: 0, 'pointer-events': 'none',
+      });
+      g.appendChild(occupancyDot);
+      slotNodes[id] = { mainCircle, occupancyDot };
+
+      g.addEventListener('click', () => {
+        const current = parseFloat(slotNodes[id].occupancyDot.getAttribute('opacity')) > 0.5;
+        setSlotOccupancy(id, !current);
+      });
+    }
+
+    if (!isIntersection) {
+      const txt = svgEl('text', {
+        x: pos.x, y: pos.y + r + 8,
+        'text-anchor': 'middle', fill: '#94a3b8',
+        'font-size': 8, 'font-family': 'monospace',
+      });
+      txt.textContent = id;
+      g.appendChild(txt);
+    }
+    nodesG.appendChild(g);
+  }
+}
+
+// ── Robot management ──────────────────────────────────────────────────────────
+
+function ensureRobot(robotId) {
+  if (robotMeta[robotId]) return robotMeta[robotId];
+
+  const color = ROBOT_PALETTE[paletteIdx % ROBOT_PALETTE.length];
+  paletteIdx++;
+
+  const el = svgEl('circle', {
+    r: 8,
+    fill: color, stroke: '#fff', 'stroke-width': 1.5,
+    style: 'filter:url(#glow); transition: transform 0.28s linear;',
+    transform: 'translate(-50,-50)',
+  });
+  el.classList.add('robot-dot');
+  document.getElementById('robots-layer').appendChild(el);
+
+  robotMeta[robotId] = { svgEl: el };
+  return robotMeta[robotId];
+}
+
+function renderRobot(robotId, s) {
+  const meta = ensureRobot(robotId);
+  const from = positions[s.current_waypoint];
+  const to   = positions[s.target_waypoint];
+
+  if (from) {
+    let x, y;
+    if (s.is_moving && to) {
+      const t = Math.max(0, Math.min(1, s.travel_progress));
+      x = from.x + (to.x - from.x) * t;
+      y = from.y + (to.y - from.y) * t;
+    } else {
+      x = from.x; y = from.y;
+    }
+    meta.svgEl.style.transform = `translate(${x}px,${y}px)`;
+    meta.svgEl.style.display   = '';
+  } else {
+    meta.svgEl.style.display = 'none';
+  }
+
+  s.is_moving
+    ? meta.svgEl.classList.add('moving')
+    : meta.svgEl.classList.remove('moving');
+}
+
+function updateSlots(slots) {
+  for (const [id, occupied] of Object.entries(slots)) {
+    const node = slotNodes[id];
+    if (!node) continue;
+    node.occupancyDot.setAttribute('opacity', occupied ? 0.9 : 0);
+    node.mainCircle.setAttribute('stroke', occupied ? '#ffffff' : '#0f1117');
+    node.mainCircle.setAttribute('stroke-width', occupied ? 3 : 2);
+  }
+}
+
+// ── WebSocket ─────────────────────────────────────────────────────────────────
+
+let ws, reconnTimer;
+
+function connect() {
+  ws = new WebSocket(`ws://${location.host}/ws`);
+
+  ws.onopen = () => {
+    document.getElementById('conn-dot').className   = 'dot';
+    document.getElementById('conn-label').textContent = 'Connected';
+    clearTimeout(reconnTimer);
+  };
+
+  ws.onclose = () => {
+    document.getElementById('conn-dot').className   = 'dot off';
+    document.getElementById('conn-label').textContent = 'Disconnected — retrying…';
+    reconnTimer = setTimeout(connect, 2500);
+  };
+
+  ws.onmessage = ({ data }) => {
+    const d = JSON.parse(data);
+    for (const [robotId, s] of Object.entries(d.robots ?? {}))
+      renderRobot(robotId, s);
+    if (d.slots) updateSlots(d.slots);
+    document.getElementById('conn-dot').className = 'dot';
+  };
+}
+
+// ── Slot occupancy toggle (clickable on map) ──────────────────────────────────
+
+async function setSlotOccupancy(waypointId, occupied) {
+  await fetch('/slot/set', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ waypoint_id: waypointId, occupied }),
+  });
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+
+async function boot() {
+  document.getElementById('conn-dot').className = 'dot off';
+  const label = document.getElementById('conn-label');
+  while (true) {
+    try {
+      await loadMap();
+      break;
+    } catch {
+      label.textContent = 'Waiting for server…';
+      await new Promise(r => setTimeout(r, 1000));
+    }
+  }
+  connect();
+}
+
+boot();
+</script>
+</body>
+</html>

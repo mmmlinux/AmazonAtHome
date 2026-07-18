@@ -1,0 +1,22 @@
+# Charger station configuration
+#
+# Each key is a waypoint ID that has a physical charging station.
+# If a charging waypoint is not listed here, the system falls back to
+# automatic charging (no engage/disengage handshake needed).
+#
+# Types
+# -----
+#   simulated  — instant engage/disengage, no hardware required (default)
+#   esp32      — real charger controlled via WebSocket to ip:port
+#
+# ESP32 example:
+#   node_4:
+#     type: esp32
+#     ip:   192.168.1.50
+#     port: 80          # default 80
+
+chargers:
+  node_4:
+    type: simulated
+  node_8:
+    type: simulated

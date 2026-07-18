@@ -10,10 +10,13 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/TaskStatus.msg"
   "msg/SlotStatus.msg"
   "msg/WarehouseState.msg"
+  "msg/ChargerStatus.msg"
+  "msg/ChargerState.msg"
   "srv/SubmitTask.srv"
   "srv/SetSlotOccupancy.srv"
   "srv/AcquireWaypoint.srv"
   "srv/ReleaseWaypoint.srv"
+  "srv/ChargerControl.srv"
   "action/LogisticsTask.action"
   "action/MoveToWaypoint.action"
 )

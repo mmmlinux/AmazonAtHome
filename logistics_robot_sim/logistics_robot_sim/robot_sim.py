@@ -42,7 +42,7 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 
 from logistics_interfaces.action import MoveToWaypoint
-from logistics_interfaces.msg import RobotStatus
+from logistics_interfaces.msg import ChargerState, RobotStatus
 
 
 class RobotSim(Node):
@@ -92,12 +92,32 @@ class RobotSim(Node):
             w.strip() for w in charging_str.split(',') if w.strip()
         }
 
+        # TODO: _is_moving is written by _execute_move (action callback) and
+        # read by _charging_tick (timer callback) without a lock.  Both run on
+        # the MultiThreadedExecutor's thread pool, so a data race is possible.
+        # Protect with _battery_lock or a dedicated boolean Event.
         self._is_moving = False
         self._battery_lock = threading.Lock()
+
+        # Charger engagement state — updated from /charger_state topic.
+        # Maps waypoint_id → engaged (bool).  Until the first message arrives
+        # (_charger_state_received=False) we fall back to auto-charging so the
+        # system works even when ChargerManager is not running.
+        self._charger_state_lock     = threading.Lock()
+        self._charger_state_received = False
+        self._engaged_chargers: dict[str, bool] = {}
 
         cb = ReentrantCallbackGroup()
 
         self._status_pub = self.create_publisher(RobotStatus, 'robot_status', 10)
+
+        self.create_subscription(
+            ChargerState,
+            '/charger_state',
+            self._on_charger_state,
+            10,
+            callback_group=cb,
+        )
 
         self._action_server = ActionServer(
             self,
@@ -122,6 +142,28 @@ class RobotSim(Node):
             f'charging spots={self._charging_waypoints}'
         )
 
+    # ── Charger state ─────────────────────────────────────────────────────────
+
+    def _on_charger_state(self, msg: ChargerState) -> None:
+        """Track which charger waypoints currently have an engaged charger."""
+        with self._charger_state_lock:
+            self._charger_state_received = True
+            self._engaged_chargers = {
+                cs.waypoint_id: cs.engaged for cs in msg.chargers
+            }
+
+    def _is_charger_engaged(self, waypoint_id: str) -> bool:
+        """
+        Return True if the charger at waypoint_id is currently engaged.
+
+        Returns False if ChargerManager has not published any state yet
+        (backwards-compatible: no lock = no block).
+        """
+        with self._charger_state_lock:
+            if not self._charger_state_received:
+                return False
+            return self._engaged_chargers.get(waypoint_id, False)
+
     # ── Charging timer ────────────────────────────────────────────────────────
 
     def _charging_tick(self) -> None:
@@ -129,13 +171,20 @@ class RobotSim(Node):
         Called every CHARGE_TIMER_PERIOD seconds.
 
         Adds charge only when the robot is stationary at a recognised charging
-        waypoint.  The `_is_moving` guard prevents a race where the timer fires
-        mid-move and incorrectly charges while the robot is en route.
+        waypoint AND the charger is engaged.  Falls back to auto-charge if
+        ChargerManager has not published any state (no charger_manager running).
         """
         if self._is_moving:
             return
         if self.current_waypoint not in self._charging_waypoints:
             return
+
+        with self._charger_state_lock:
+            if self._charger_state_received:
+                # ChargerManager is running — only charge when engaged
+                if not self._engaged_chargers.get(self.current_waypoint, False):
+                    return
+
         with self._battery_lock:
             if self.battery_level < 100.0:
                 gained = self._charge_rate * self.CHARGE_TIMER_PERIOD
@@ -184,6 +233,21 @@ class RobotSim(Node):
         heading  = float(goal_handle.request.heading_deg)
         turn     = float(goal_handle.request.turn_deg)
         travel_time = distance / self.speed if self.speed > 0 else 0.0
+
+        # Safety: block if the charger at our current waypoint is still engaged.
+        # nav_server is expected to disengage before issuing any move command;
+        # this is a last-resort guard against programming errors or timing races.
+        CHARGER_RELEASE_TIMEOUT_S = 30.0
+        deadline = time.monotonic() + CHARGER_RELEASE_TIMEOUT_S
+        while self._is_charger_engaged(self.current_waypoint):
+            if time.monotonic() > deadline:
+                self.get_logger().error(
+                    f'Charger at [{self.current_waypoint}] still engaged after '
+                    f'{CHARGER_RELEASE_TIMEOUT_S:.0f} s — proceeding anyway '
+                    '(charger should have been disengaged before issuing a move)'
+                )
+                break
+            time.sleep(0.1)
 
         self._is_moving = True
         try:

@@ -18,7 +18,9 @@ setup(
     license='Apache-2.0',
     entry_points={
         'console_scripts': [
-            'robot_sim = logistics_robot_sim.robot_sim:main',
+            'robot_sim         = logistics_robot_sim.robot_sim:main',
+            'real_robot_driver = logistics_robot_sim.real_robot_driver:main',
+            'hector_driver     = logistics_robot_sim.hector_driver:main',
         ],
     },
 )

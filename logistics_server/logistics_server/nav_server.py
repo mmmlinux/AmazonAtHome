@@ -72,7 +72,7 @@ from std_msgs.msg import Empty
 
 from logistics_interfaces.action import LogisticsTask, MoveToWaypoint
 from logistics_interfaces.msg import RobotStatus, WarehouseState
-from logistics_interfaces.srv import AcquireWaypoint, ReleaseWaypoint
+from logistics_interfaces.srv import AcquireWaypoint, ChargerControl, ReleaseWaypoint
 
 # Collision-avoidance movement priorities (higher = gets waypoint first).
 # Separate from the display priorities on TaskStatus.
@@ -161,6 +161,9 @@ class NavServer(Node):
 
         # Track the robot's current heading so each new leg can compute
         # the relative turn angle.  None = unknown (first move of a session).
+        # TODO: Protect robot_position and robot_heading_deg with a lock.
+        # Both are written in the execute_callback (action thread) and could
+        # be read by _on_peer_status or _yield_retreat from other threads.
         self.robot_heading_deg: float | None = None
 
         # Current collision-avoidance movement priority (set per task).
@@ -177,6 +180,9 @@ class NavServer(Node):
         self._slot_occupied: dict[str, bool] = {}
 
         # Peer robot positions: peer_id → current_waypoint
+        # TODO: Protect _peer_positions and _slot_occupied with a lock.
+        # They are written by subscription callbacks (executor thread pool) and
+        # read by pathfinding code running on the action execute thread.
         self._peer_positions: dict[str, str] = {}
 
         # Reentrant groups so the action client callbacks can fire while the
@@ -216,6 +222,13 @@ class NavServer(Node):
         )
         self._release_cli = self.create_client(
             ReleaseWaypoint, '/traffic/release', callback_group=cb_group,
+        )
+
+        # Charger manager client — engage/disengage physical charger stations.
+        # Optional: if ChargerManager is not running, calls time out and we log
+        # a warning then continue (degraded to auto-charge mode).
+        self._charger_ctrl_cli = self.create_client(
+            ChargerControl, '/charger/control', callback_group=cb_group,
         )
 
         self._task_server = ActionServer(
@@ -338,7 +351,16 @@ class NavServer(Node):
                 _d.set()
 
             self._acquire_cli.call_async(req).add_done_callback(_cb)
-            done.wait(timeout=5.0)  # 5 s covers slow TC under load
+
+            # Poll in short slices so a yield signal is noticed quickly.
+            # A plain done.wait(5.0) would delay yield response by up to 5 s,
+            # causing repeated deadlock re-detection before the robot can act.
+            wait_deadline = time.time() + 5.0
+            while time.time() < wait_deadline:
+                if done.wait(timeout=0.2):
+                    break  # service response received
+                if self._yield_event.is_set():
+                    break  # yield signal arrived — handle at top of outer loop
 
             if holder[0] is not None and holder[0].granted:
                 return True
@@ -427,6 +449,75 @@ class NavServer(Node):
         self.robot_position = retreat_wp
         self.robot_heading_deg = heading
         return True
+
+    # ------------------------------------------------------------------
+    # Charger control helpers
+    # ------------------------------------------------------------------
+
+    def _call_charger_control(
+        self, waypoint_id: str, engage: bool, timeout: float = 20.0
+    ) -> bool:
+        """
+        Call /charger/control synchronously from a ROS callback thread.
+
+        Uses the same call_async + threading.Event pattern as _acquire_wp so
+        we do not block the executor's callback queue.
+
+        Returns True if the service call succeeded.  If ChargerManager is not
+        running the call times out and we return False (system continues in
+        auto-charge mode).
+        """
+        if not self._charger_ctrl_cli.service_is_ready():
+            self.get_logger().debug(
+                '/charger/control not available — skipping charger handshake'
+            )
+            return False
+
+        req = ChargerControl.Request()
+        req.waypoint_id = waypoint_id
+        req.robot_id    = self._robot_id
+        req.engage      = engage
+
+        holder: list = [None]
+        done = threading.Event()
+
+        def _cb(fut, _h=holder, _d=done):
+            _h[0] = fut.result()
+            _d.set()
+
+        self._charger_ctrl_cli.call_async(req).add_done_callback(_cb)
+        done.wait(timeout=timeout)
+
+        result = holder[0]
+        if result is None:
+            action = 'engage' if engage else 'disengage'
+            self.get_logger().warning(
+                f'Charger {action} [{waypoint_id}] timed out after {timeout:.0f} s'
+            )
+            return False
+        return result.success
+
+    def _engage_charger(self, waypoint_id: str) -> bool:
+        """Engage the charger at waypoint_id. Logs success/failure."""
+        ok = self._call_charger_control(waypoint_id, engage=True)
+        if ok:
+            self.get_logger().info(f'Charger engaged at [{waypoint_id}]')
+        else:
+            self.get_logger().warning(
+                f'Charger engage failed for [{waypoint_id}] — continuing anyway'
+            )
+        return ok
+
+    def _disengage_charger(self, waypoint_id: str) -> bool:
+        """Disengage the charger at waypoint_id before moving away."""
+        ok = self._call_charger_control(waypoint_id, engage=False)
+        if ok:
+            self.get_logger().info(f'Charger disengaged at [{waypoint_id}]')
+        else:
+            self.get_logger().warning(
+                f'Charger disengage failed for [{waypoint_id}] — moving anyway'
+            )
+        return ok
 
     # ------------------------------------------------------------------
     # Battery lockout
@@ -531,6 +622,9 @@ class NavServer(Node):
             goal_handle.publish_feedback(fb)
             self._send_move_to(charger)
 
+        # Engage the charger — robot is now locked in place until disengaged.
+        self._engage_charger(charger)
+
         resume_at = 80.0
 
         with self._battery_lock:
@@ -550,6 +644,9 @@ class NavServer(Node):
             fb.detail = f'Charging: {level:.0f}% / {resume_at:.0f}%'
             goal_handle.publish_feedback(fb)
             time.sleep(0.5)
+
+        # Disengage the charger before allowing the robot to move away.
+        self._disengage_charger(charger)
 
         self.get_logger().info(
             f'Battery recovered to {level:.1f}% — aborting task for re-queue'
@@ -619,6 +716,12 @@ class NavServer(Node):
         """
         Shortest signed turn from from_heading to to_heading (degrees).
         Positive = CCW (left), negative = CW (right).
+
+        TODO: Verify sign convention matches hector_agent.py before real-hardware
+        testing.  hector_agent documents positive = CW (right), and Boskov's
+        ROTATE command uses positive = CW — both are the opposite of what this
+        function returns.  One of the two sides needs to negate turn_deg, or the
+        robot will turn the wrong way on every heading change.
         """
         diff = (to_heading - from_heading + 180.0) % 360.0 - 180.0
         return diff
@@ -735,6 +838,9 @@ class NavServer(Node):
             goal_handle.succeed()
             return result
 
+        task_start  = time.time()
+        start_wp    = self.robot_position
+
         path, total_dist = self._dijkstra(self.robot_position, destination)
 
         if path is None:
@@ -744,7 +850,9 @@ class NavServer(Node):
             return result
 
         self.get_logger().info(
-            f'Path: {" -> ".join(path)}  (total {total_dist:.1f} m)'
+            f'[{self._robot_id}] PLAN  {start_wp} → {destination}  '
+            f'hops={len(path)-1}  dist={total_dist:.1f}m  '
+            f'path=[{" -> ".join(path)}]'
         )
 
         # Publish initial feedback with the full planned path
@@ -756,8 +864,9 @@ class NavServer(Node):
         feedback.detail = f'Navigating to {destination}'
         goal_handle.publish_feedback(feedback)
 
-        path_taken = [self.robot_position]
-        step_count = 0
+        path_taken  = [self.robot_position]
+        step_count  = 0
+        last_path   = path[:]   # track replan changes
 
         # Re-plan at every hop so the route adapts to where peers currently are.
         while self.robot_position != destination:
@@ -774,7 +883,7 @@ class NavServer(Node):
                 if wp and wp != self.robot_position
             }
 
-            path, _ = self._dijkstra(
+            path, pen_dist = self._dijkstra(
                 self.robot_position, destination,
                 penalized_wps=peer_wps or None,
             )
@@ -785,6 +894,44 @@ class NavServer(Node):
                 goal_handle.abort()
                 return result
 
+            # ── Detour detection ──────────────────────────────────────────────
+            # When peers are present, compare the penalised route to the natural
+            # shortest path.  Log any detour so bad routing is easy to spot.
+            if peer_wps:
+                natural_path, natural_dist = self._dijkstra(
+                    self.robot_position, destination
+                )
+                if natural_path and path != natural_path:
+                    # pen_dist includes the 50m penalty value itself, so compute
+                    # true traversal cost by re-scoring the penalised path.
+                    actual_pen_dist = sum(
+                        self.graph[natural_path[i]][natural_path[i+1]]
+                        for i in range(len(natural_path)-1)
+                    )
+                    detour_cost = sum(
+                        self.graph[path[i]][path[i+1]]
+                        for i in range(len(path)-1)
+                    )
+                    overhead = detour_cost - natural_dist
+                    avoided = peer_wps & set(natural_path[1:])
+                    self.get_logger().info(
+                        f'[{self._robot_id}] DETOUR +{overhead:.1f}m  '
+                        f'avoiding {avoided}  '
+                        f'natural=[{" -> ".join(natural_path)}]  '
+                        f'actual=[{" -> ".join(path)}]'
+                    )
+
+            # ── Replan change detection ───────────────────────────────────────
+            # Log when the planned remainder changes from the previous iteration
+            # (caused by a peer moving into or out of the route since last hop).
+            if path != last_path:
+                self.get_logger().debug(
+                    f'[{self._robot_id}] REPLAN at step {step_count+1}  '
+                    f'prev=[{" -> ".join(last_path)}]  '
+                    f'new=[{" -> ".join(path)}]'
+                )
+                last_path = path[:]
+
             next_wp   = path[1]
             edge_dist = self.graph[self.robot_position][next_wp]
             heading   = self._heading(self.robot_position, next_wp)
@@ -794,13 +941,27 @@ class NavServer(Node):
             )
 
             self.get_logger().info(
-                f'Step {step_count + 1} → [{next_wp}]  '
-                f'dist={edge_dist:.1f} m  remaining={len(path) - 1} hops'
-                + (f'  avoiding={peer_wps}' if peer_wps else '')
+                f'[{self._robot_id}] HOP {step_count+1}  '
+                f'{self.robot_position} → {next_wp}  '
+                f'edge={edge_dist:.1f}m  {len(path)-1} hops left'
+                + (f'  peers@{peer_wps}' if peer_wps else '')
             )
 
-            # Acquire next waypoint.  Returns False if a yield signal was received.
-            if not self._acquire_wp(next_wp, priority):
+            # ── Waypoint acquire (with wait-time logging) ─────────────────────
+            acquire_t = time.time()
+            granted   = self._acquire_wp(next_wp, priority)
+            wait_s    = time.time() - acquire_t
+            if wait_s > 2.0:
+                self.get_logger().warning(
+                    f'[{self._robot_id}] Waited {wait_s:.1f}s to acquire {next_wp} '
+                    f'(peers={self._peer_positions})'
+                )
+            elif wait_s > 0.1:
+                self.get_logger().debug(
+                    f'[{self._robot_id}] Acquired {next_wp} after {wait_s:.2f}s'
+                )
+
+            if not granted:
                 if not self._yield_retreat(next_wp, priority):
                     time.sleep(1.0)  # no retreat possible — wait and replan
                 # Either way: position may have changed, replan next iteration.
@@ -835,6 +996,22 @@ class NavServer(Node):
             feedback.total_steps      = step_count + len(path) - 2
             feedback.detail = f'Step {step_count} — at {self.robot_position}'
             goal_handle.publish_feedback(feedback)
+
+        # ── Task completion summary ───────────────────────────────────────────
+        elapsed      = time.time() - task_start
+        actual_dist  = sum(
+            self.graph[path_taken[i]][path_taken[i+1]]
+            for i in range(len(path_taken) - 1)
+        )
+        _, opt_dist  = self._dijkstra(start_wp, destination)
+        overhead     = actual_dist - opt_dist
+        self.get_logger().info(
+            f'[{self._robot_id}] DONE  {start_wp} → {destination}  '
+            f'hops={len(path_taken)-1}  dist={actual_dist:.1f}m  '
+            f'optimal={opt_dist:.1f}m  overhead={overhead:+.1f}m  '
+            f'time={elapsed:.1f}s  '
+            f'path=[{" -> ".join(path_taken)}]'
+        )
 
         result.success = True
         result.path_taken = path_taken
