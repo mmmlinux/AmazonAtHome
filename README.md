@@ -1,5 +1,7 @@
 # Amazon at Home — Warehouse Logistics Simulator
 
+100% vibe coded slop guaranteed.
+
 A ROS 2 (Humble) simulation of a multi-robot warehouse logistics system. Two simulated robots pick up and deliver boxes across a warehouse, navigating via Dijkstra pathfinding, managing battery, and coordinating through a shared task queue. A live web UI shows robot positions, battery levels, slot occupancy, and the task queue.
 
 ## Quick Start (Docker)
