@@ -18,6 +18,11 @@ To pass launch arguments:
 docker compose run --rm warehouse travel_speed:=3.0 min_battery_1:=40.0
 ```
 
+`./start.sh` is a thin convenience wrapper around `docker compose up` — it just
+`mkdir -p logs` first and passes through any arguments (e.g. `./start.sh --build`).
+It runs in the foreground (`Ctrl+C` stops it) and brings up every service defined
+in `docker-compose.yml` (`warehouse` and `git-daemon`), not just `warehouse`.
+
 ## Quick Start (Native ROS 2 Humble)
 
 ```bash
